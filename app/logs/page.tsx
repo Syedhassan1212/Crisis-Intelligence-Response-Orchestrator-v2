@@ -287,7 +287,7 @@ function LogRow({ entry, expanded, onToggle }: { entry: LogEntry; expanded: bool
       {expanded && hasDetails && (
         <div className="px-4 pb-3 border-t border-white/5 pt-2 space-y-2 animate-fade-in">
           <div className="grid grid-cols-2 gap-3">
-            {entry.requestPayload && (
+            {!!entry.requestPayload && (
               <div>
                 <div className="text-xs text-gray-600 mb-1 font-semibold uppercase tracking-wider">REQUEST</div>
                 <pre className="text-xs text-gray-400 font-mono bg-gray-950 rounded-lg p-2 overflow-x-auto max-h-32">
@@ -295,7 +295,7 @@ function LogRow({ entry, expanded, onToggle }: { entry: LogEntry; expanded: bool
                 </pre>
               </div>
             )}
-            {entry.responsePayload && (
+            {!!entry.responsePayload && (
               <div>
                 <div className="text-xs text-gray-600 mb-1 font-semibold uppercase tracking-wider">RESPONSE</div>
                 <pre className="text-xs text-gray-400 font-mono bg-gray-950 rounded-lg p-2 overflow-x-auto max-h-32">
@@ -304,7 +304,7 @@ function LogRow({ entry, expanded, onToggle }: { entry: LogEntry; expanded: bool
               </div>
             )}
           </div>
-          {entry.details && (
+          {!!entry.details && (
             <div>
               <div className="text-xs text-gray-600 mb-1 font-semibold uppercase tracking-wider">DETAILS</div>
               <pre className="text-xs text-gray-400 font-mono bg-gray-950 rounded-lg p-2 overflow-x-auto max-h-32">
@@ -604,19 +604,19 @@ function AgentsView({ logs }: { logs: LogEntry[] }) {
                       </div>
                       {isExp && hasDetail && (
                         <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-3">
-                          {entry.requestPayload && (
+                          {!!entry.requestPayload && (
                             <div>
                               <div className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1.5">📤 Request Payload</div>
                               <pre className="text-xs text-gray-400 font-mono bg-gray-950 rounded-lg p-3 overflow-x-auto max-h-48 border border-white/5">{JSON.stringify(entry.requestPayload, null, 2)}</pre>
                             </div>
                           )}
-                          {entry.responsePayload && (
+                          {!!entry.responsePayload && (
                             <div>
                               <div className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1.5">📥 Response Payload</div>
                               <pre className="text-xs text-gray-400 font-mono bg-gray-950 rounded-lg p-3 overflow-x-auto max-h-48 border border-white/5">{JSON.stringify(entry.responsePayload, null, 2)}</pre>
                             </div>
                           )}
-                          {entry.details && (
+                          {!!entry.details && (
                             <div>
                               <div className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1.5">🔍 Decision Details</div>
                               <pre className="text-xs text-gray-400 font-mono bg-gray-950 rounded-lg p-3 overflow-x-auto max-h-48 border border-white/5">{JSON.stringify(entry.details, null, 2)}</pre>

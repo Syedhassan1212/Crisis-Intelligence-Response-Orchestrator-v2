@@ -5,7 +5,7 @@
 
 import type {
   OrchestratorState, CrisisEvent, FusedSignal, ResourceUnit,
-  AllocationPlan, Notification, AIDecisionLog, SimulationResult, TrafficAction,
+  AllocationPlan, Notification, AIDecisionLog, SimulationResult, TrafficAction, TrafficData
 } from './types';
 import { fetchSocialPosts, fetchWeatherData, fetchTrafficData, fuseSocialSignals, getDefaultResources } from './ingestion';
 import {

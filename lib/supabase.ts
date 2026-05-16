@@ -12,7 +12,7 @@ const supabaseKey  = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 // Lazy singleton
 let _client: ReturnType<typeof createClient> | null = null;
-export function getSupabase() {
+export function getSupabase(): any {
   if (!_client) _client = createClient(supabaseUrl, supabaseKey);
   return _client;
 }

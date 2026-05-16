@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getLogs, getLogStats, clearLogs } from '@/lib/logger';
 import type { LogLevel, LogCategory } from '@/lib/logger';
+import { fetchHistoricalLogs, isSupabaseEnabled } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
 
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: true, data: getLogStats() });
   }
 
-  const logs = getLogs({
+  let logs = getLogs({
     ...(level && { level }),
     ...(category && { category }),
     ...(agent && { agent }),
@@ -26,6 +27,32 @@ export async function GET(req: Request) {
     ...(cycle !== undefined && { cycleNumber: cycle }),
     limit,
   });
+
+  // Fallback to Supabase if in-memory buffer is empty (e.g., after a restart)
+  if (logs.length === 0 && isSupabaseEnabled()) {
+    const historical = await fetchHistoricalLogs({
+      level: level || undefined,
+      category: category || undefined,
+      agent, search, cycleNumber: cycle, limit
+    });
+    logs = historical.map((l: any) => ({
+      id: l.id,
+      timestamp: l.timestamp,
+      level: l.level,
+      category: l.category,
+      agent: l.agent,
+      action: l.action,
+      message: l.message,
+      details: l.details,
+      durationMs: l.duration_ms,
+      success: l.success,
+      errorMessage: l.error_message,
+      requestPayload: l.request_payload,
+      responsePayload: l.response_payload,
+      confidence: l.confidence,
+      cycleNumber: l.cycle_number,
+    }));
+  }
 
   return NextResponse.json({
     success: true,

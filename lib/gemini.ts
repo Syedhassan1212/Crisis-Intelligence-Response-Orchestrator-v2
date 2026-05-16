@@ -25,21 +25,49 @@ async function callGemini(agent: string, action: string, prompt: string, systemI
   const start = Date.now();
   const promptPreview = prompt.trim().slice(0, 120).replace(/\n/g, ' ');
   logInfo('API_CALL', agent, action, `→ Gemini Flash: "${promptPreview}..."`, {
-    requestPayload: { model: 'gemini-2.0-flash', promptLength: prompt.length },
+    requestPayload: { model: 'gemma-4-26b-a4b-it', fullPrompt: prompt },
   });
   try {
     const ai = getGenAI();
     const model = ai.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: systemInstruction || 'You are CIRO, an expert AI crisis intelligence analyst. Always respond with valid JSON only. No markdown, no code blocks, just raw JSON.',
+      model: 'gemini-3.0-flash',
+      systemInstruction: systemInstruction || 'You are CIRO, an AI crisis analyst. You MUST NOT explain your reasoning. You MUST NOT use chain of thought. Output ONLY the final valid JSON object. Do not output anything before the JSON.',
+      generationConfig: {
+        responseMimeType: 'application/json',
+      }
     });
     const result = await model.generateContent(prompt);
     const text = result.response.text().trim();
-    const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    
+    // Robust JSON extraction
+    let clean = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+    const firstBrace = clean.indexOf('{');
+    const firstBracket = clean.indexOf('[');
+    let startIndex = -1;
+    let isArray = false;
+    
+    if (firstBrace !== -1 && firstBracket !== -1) {
+      startIndex = Math.min(firstBrace, firstBracket);
+      isArray = startIndex === firstBracket;
+    } else if (firstBrace !== -1) {
+      startIndex = firstBrace;
+    } else if (firstBracket !== -1) {
+      startIndex = firstBracket;
+      isArray = true;
+    }
+    
+    if (startIndex !== -1) {
+      const endChar = isArray ? ']' : '}';
+      const endIndex = clean.lastIndexOf(endChar);
+      if (endIndex !== -1 && endIndex > startIndex) {
+        clean = clean.substring(startIndex, endIndex + 1);
+      }
+    }
+
     const ms = Date.now() - start;
     logSuccess('API_CALL', agent, action, `← Gemini responded in ${ms}ms (${clean.length} chars)`, {
       durationMs: ms,
-      responsePayload: { length: clean.length, preview: clean.slice(0, 150) },
+      responsePayload: { rawOutput: text, extractedJson: clean },
     });
     return clean;
   } catch (err: unknown) {
@@ -270,7 +298,7 @@ ${signals.map(s => `- ${s.event_type} at ${s.location} (${s.urgency_level}, conf
 Return a plain text summary string (no JSON).`;
   try {
     const ai = getGenAI();
-    const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = ai.getGenerativeModel({ model: 'gemma-4-26b-a4b-it' });
     const result = await model.generateContent(prompt);
     return result.response.text().trim();
   } catch {

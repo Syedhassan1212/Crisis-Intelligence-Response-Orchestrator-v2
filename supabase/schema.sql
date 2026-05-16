@@ -9,7 +9,7 @@
 -- ── Orchestration Cycles ─────────────────────────────────────
 CREATE TABLE IF NOT EXISTS ciro_cycles (
   id          SERIAL PRIMARY KEY,
-  cycle_number INTEGER NOT NULL,
+  cycle_number INTEGER NOT NULL UNIQUE,
   started_at  TIMESTAMPTZ DEFAULT NOW(),
   completed_at TIMESTAMPTZ,
   duration_ms INTEGER,
@@ -101,5 +101,12 @@ CREATE INDEX IF NOT EXISTS ciro_notif_channel  ON ciro_notifications(channel);
 -- Run these in Supabase dashboard > Database > Replication
 ALTER PUBLICATION supabase_realtime ADD TABLE ciro_crises;
 ALTER PUBLICATION supabase_realtime ADD TABLE ciro_logs;
-ALTER PUBLICATION supabase_realtime ADD TABLE ciro_notifications;
 ALTER PUBLICATION supabase_realtime ADD TABLE ciro_cycles;
+
+-- ── Disable RLS for Demo/Hackathon ───────────────────────────
+-- (Supabase enables RLS by default on new projects sometimes)
+ALTER TABLE ciro_cycles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE ciro_logs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE ciro_crises DISABLE ROW LEVEL SECURITY;
+ALTER TABLE ciro_allocations DISABLE ROW LEVEL SECURITY;
+ALTER TABLE ciro_notifications DISABLE ROW LEVEL SECURITY;
