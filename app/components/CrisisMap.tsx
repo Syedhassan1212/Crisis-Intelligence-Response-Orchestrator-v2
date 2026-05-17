@@ -8,6 +8,7 @@ interface CrisisMapProps {
   resources: ResourceUnit[];
   trafficActions: TrafficAction[];
   signals: FusedSignal[];
+  onManualDispatch?: (updatedState: any) => void;
 }
 
 const CRISIS_ICONS: Record<string, string> = {
@@ -17,7 +18,7 @@ const CRISIS_ICONS: Record<string, string> = {
 };
 
 const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#f59e0b', LOW: '#22c55e',
+  CRITICAL: '#ff3333', HIGH: '#ff7700', MEDIUM: '#ffaa00', LOW: '#00ff66',
 };
 
 const RESOURCE_EMOJIS: Record<string, string> = {
@@ -25,7 +26,7 @@ const RESOURCE_EMOJIS: Record<string, string> = {
 };
 
 const RESOURCE_COLORS: Record<string, string> = {
-  ambulance: '#ef4444', police: '#3b82f6', fire_unit: '#f97316', rescue: '#a855f7', utility: '#f59e0b',
+  ambulance: '#ff3333', police: '#0088ff', fire_unit: '#ffaa00', rescue: '#a855f7', utility: '#00ff66',
 };
 
 // Karachi key locations for routing simulation
@@ -47,7 +48,6 @@ const KARACHI_COORDS: Record<string, [number, number]> = {
 
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 
-// Moving resource marker state
 interface MovingResource {
   unit: ResourceUnit;
   startLat: number; startLng: number;
@@ -58,14 +58,17 @@ interface MovingResource {
   targetCrisis?: CrisisEvent;
   marker?: google.maps.Marker;
   label?: google.maps.InfoWindow;
+  routePath?: google.maps.LatLng[]; // Actual Google Maps road route path
+  polyline?: google.maps.Polyline;   // Dashboard route line
 }
 
-export default function CrisisMap({ crises, resources, trafficActions, signals }: CrisisMapProps) {
+export default function CrisisMap({ crises, resources, trafficActions, signals, onManualDispatch }: CrisisMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<google.maps.Map | null>(null);
   const crisisMarkers = useRef<google.maps.Marker[]>([]);
   const crisisCircles = useRef<google.maps.Circle[]>([]);
   const movingRefs = useRef<Map<string, MovingResource>>(new Map());
+  const availableMarkers = useRef<google.maps.Marker[]>([]);
   const animFrame = useRef<number>(0);
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
 
@@ -80,6 +83,15 @@ export default function CrisisMap({ crises, resources, trafficActions, signals }
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
     if (!apiKey || apiKey === 'your_google_maps_api_key_here') { setMapError(true); return; }
     if ((window as any).google?.maps) { initMap(); return; }
+    
+    // Detect if Google Maps script is already active in the document head (prevents double imports on hot-reloading)
+    const existingScript = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
+    if (existingScript) {
+      existingScript.addEventListener('load', initMap);
+      existingScript.addEventListener('error', () => setMapError(true));
+      return;
+    }
+
     const s = document.createElement('script');
     s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry`;
     s.async = true; s.onload = initMap; s.onerror = () => setMapError(true);
@@ -114,14 +126,14 @@ export default function CrisisMap({ crises, resources, trafficActions, signals }
       crisisCircles.current.push(new google.maps.Circle({
         map, center: { lat: c.lat!, lng: c.lng! },
         radius: c.affected_radius_km * 1000,
-        strokeColor: col, strokeOpacity: 0.7, strokeWeight: 1.5,
-        fillColor: col, fillOpacity: 0.08,
+        strokeColor: col, strokeOpacity: 0.85, strokeWeight: 1.5,
+        fillColor: col, fillOpacity: 0.05,
       }));
       const marker = new google.maps.Marker({
         map, position: { lat: c.lat!, lng: c.lng! },
-        title: `${c.type} — ${c.location}`,
-        label: { text: CRISIS_ICONS[c.type] || '❓', fontSize: '20px' },
-        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 20, fillColor: col, fillOpacity: 0.9, strokeColor: '#fff', strokeWeight: 2 },
+        title: `ID-${c.id.slice(0, 4).toUpperCase()} — ${c.location}`,
+        label: { text: CRISIS_ICONS[c.type] || '❓', fontSize: '18px' },
+        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 22, fillColor: col, fillOpacity: 0.85, strokeColor: '#ffffff', strokeWeight: 2 },
         zIndex: c.severity === 'CRITICAL' ? 100 : 50,
       });
       const iw = new google.maps.InfoWindow({ content: buildCrisisInfoHtml(c) });
@@ -130,7 +142,67 @@ export default function CrisisMap({ crises, resources, trafficActions, signals }
     }
   }, [crises, mapLoaded]);
 
-  // ── Moving resource animation ────────────────────────────────
+  // ── Available (Idle) Resources with Manual Dispatch override ──
+  useEffect(() => {
+    if (!mapLoaded || !mapInstance.current) return;
+    availableMarkers.current.forEach(m => m.setMap(null));
+    availableMarkers.current = [];
+    const map = mapInstance.current;
+
+    const idleUnits = resources.filter(r => r.status === 'available');
+
+    for (const unit of idleUnits) {
+      if (!unit.lat || !unit.lng) continue;
+      const col = '#475569'; // High-tech slate grey for standby hub resources
+
+      const marker = new google.maps.Marker({
+        map, position: { lat: unit.lat, lng: unit.lng },
+        label: { text: RESOURCE_EMOJIS[unit.type] || '🚗', fontSize: '12px' },
+        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 13, fillColor: col, fillOpacity: 0.7, strokeColor: '#cbd5e1', strokeWeight: 2 },
+        zIndex: 40,
+        title: `${unit.id.toUpperCase()} — Standby at ${unit.location} Hub`,
+      });
+
+      const iw = new google.maps.InfoWindow({
+        content: buildManualDispatchHtml(unit, crises.filter(c => c.status === 'active')),
+      });
+
+      marker.addListener('click', () => {
+        iw.open(map, marker);
+        // Expose global manual dispatch function for InfoWindow's HTML button
+        (window as any).dispatchUnitManually = async (resId: string, crisisId: string) => {
+          if (!crisisId) {
+            alert('Please select an active target coordinates lock to dispatch asset!');
+            return;
+          }
+          try {
+            const res = await fetch('/api/allocate/manual', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resourceId: resId, crisisId })
+            });
+            const data = await res.json();
+            if (data.success) {
+              iw.close();
+              if (onManualDispatch) onManualDispatch(data.data);
+            } else {
+              alert(`Manual dispatch authorization rejected: ${data.error}`);
+            }
+          } catch (err) {
+            alert(`Satellite authorization protocol error: ${err}`);
+          }
+        };
+      });
+
+      availableMarkers.current.push(marker);
+    }
+
+    return () => {
+      availableMarkers.current.forEach(m => m.setMap(null));
+    };
+  }, [resources, crises, mapLoaded, onManualDispatch]);
+
+  // ── Moving resource animation & Google Directions Road Routing ──
   const initMovingResources = useCallback(() => {
     if (!mapLoaded || !mapInstance.current) return;
     const map = mapInstance.current;
@@ -148,14 +220,14 @@ export default function CrisisMap({ crises, resources, trafficActions, signals }
       if (!endCoords) continue;
 
       const etaMs = (unit.eta_minutes || 12) * 60 * 1000;
-      const col = RESOURCE_COLORS[unit.type] || '#f97316';
+      const col = RESOURCE_COLORS[unit.type] || '#ffaa00';
 
       const marker = new google.maps.Marker({
         map, position: { lat: unit.lat, lng: unit.lng },
-        label: { text: RESOURCE_EMOJIS[unit.type] || '🚗', fontSize: '16px' },
-        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: col, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+        label: { text: RESOURCE_EMOJIS[unit.type] || '🚗', fontSize: '15px' },
+        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 15, fillColor: col, fillOpacity: 0.95, strokeColor: '#ffffff', strokeWeight: 2 },
         zIndex: 80,
-        title: `${unit.id} — ETA: ${unit.eta_minutes || 12}min`,
+        title: `${unit.id.toUpperCase()} — ETA: ${unit.eta_minutes || 12}m`,
       });
 
       const etaLabel = new google.maps.InfoWindow({
@@ -166,6 +238,39 @@ export default function CrisisMap({ crises, resources, trafficActions, signals }
       marker.addListener('click', () => {
         etaLabel.open(map, marker);
         setSelectedUnit(unit.id);
+      });
+
+      // Calculate Traffic-Aware Road Routing via Google Directions Service
+      const directionsService = new google.maps.DirectionsService();
+      directionsService.route({
+        origin: { lat: unit.lat, lng: unit.lng },
+        destination: { lat: endCoords[0], lng: endCoords[1] },
+        travelMode: google.maps.TravelMode.DRIVING,
+        provideRouteAlternatives: false,
+      }, (result, status) => {
+        if (status === google.maps.DirectionsStatus.OK && result && result.routes[0]) {
+          const routePath = result.routes[0].overview_path;
+          
+          // Road route polyline
+          const polyline = new google.maps.Polyline({
+            map,
+            path: routePath,
+            strokeColor: '#3b82f6',
+            strokeOpacity: 0.8,
+            strokeWeight: 3,
+            icons: [{
+              icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 2, strokeColor: col },
+              offset: '0',
+              repeat: '18px'
+            }]
+          });
+
+          const mv = movingRefs.current.get(unit.id);
+          if (mv) {
+            mv.routePath = routePath;
+            mv.polyline = polyline;
+          }
+        }
       });
 
       movingRefs.current.set(unit.id, {
@@ -180,6 +285,7 @@ export default function CrisisMap({ crises, resources, trafficActions, signals }
     for (const [id, mv] of movingRefs.current) {
       if (!dispatched.find(r => r.id === id)) {
         mv.marker?.setMap(null);
+        mv.polyline?.setMap(null); // Clear road routing line!
         mv.label?.close();
         movingRefs.current.delete(id);
       }
@@ -188,7 +294,7 @@ export default function CrisisMap({ crises, resources, trafficActions, signals }
 
   useEffect(() => { initMovingResources(); }, [initMovingResources]);
 
-  // ── Animation loop ───────────────────────────────────────────
+  // ── Animation loop with snap-to-road navigation snap ─────────
   useEffect(() => {
     if (!mapLoaded) return;
     let running = true;
@@ -202,30 +308,40 @@ export default function CrisisMap({ crises, resources, trafficActions, signals }
         const elapsed = now - mv.startedAt;
         mv.progress = Math.min(1, elapsed / mv.etaMs);
 
-        const lat = lerp(mv.startLat, mv.endLat, mv.progress);
-        const lng = lerp(mv.startLng, mv.endLng, mv.progress);
+        // Snap to road path steps if Directions route exists, otherwise straight line lerp
+        let lat = lerp(mv.startLat, mv.endLat, mv.progress);
+        let lng = lerp(mv.startLng, mv.endLng, mv.progress);
+
+        if (mv.routePath && mv.routePath.length > 0) {
+          const totalPoints = mv.routePath.length;
+          const pointIndex = Math.min(totalPoints - 1, Math.floor(mv.progress * totalPoints));
+          const coords = mv.routePath[pointIndex];
+          lat = coords.lat();
+          lng = coords.lng();
+        }
+
         mv.marker?.setPosition({ lat, lng });
 
         const remainingMs = Math.max(0, mv.etaMs - elapsed);
         const remainingMin = Math.round(remainingMs / 60000);
         newEta[id] = remainingMin;
 
-        // Pulse effect when close
+        // Proximity indicator when close to incident
         if (mv.progress > 0.85 && mv.marker) {
-          const col = RESOURCE_COLORS[mv.unit.type] || '#f97316';
+          const col = RESOURCE_COLORS[mv.unit.type] || '#ffaa00';
           mv.marker.setIcon({
             path: google.maps.SymbolPath.CIRCLE,
-            scale: 14 + Math.sin(now / 200) * 3,
-            fillColor: col, fillOpacity: 1,
-            strokeColor: '#fff', strokeWeight: 2.5,
+            scale: 15,
+            fillColor: col, fillOpacity: 0.95,
+            strokeColor: '#ffffff', strokeWeight: 2,
           });
         }
 
-        // Arrived
+        // Target Objective reached
         if (mv.progress >= 1) {
           mv.marker?.setIcon({
             path: google.maps.SymbolPath.CIRCLE,
-            scale: 16, fillColor: '#22c55e', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2,
+            scale: 17, fillColor: '#00ff66', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2,
           });
           newEta[id] = 0;
         }
@@ -248,85 +364,103 @@ export default function CrisisMap({ crises, resources, trafficActions, signals }
 
   const dispatchedUnits = resources.filter(r => r.status === 'dispatched' || r.status === 'en_route' || r.status === 'on_scene');
 
-  return (
-    <div className="relative w-full h-full" style={{ background: '#0a1628' }}>
-      {/* Map controls */}
-      <div className="absolute top-3 right-3 z-10 flex flex-col gap-2">
-        <button onClick={() => setShowTraffic(v => !v)} className={`px-3 py-1.5 rounded-md text-xs font-medium backdrop-blur-sm transition-all ${showTraffic ? 'bg-blue-600/80 text-white border border-blue-500/50' : 'bg-black/60 text-gray-400 border border-white/10'}`}>🚦 Traffic</button>
-        <button onClick={() => { mapInstance.current?.setCenter({ lat: 24.8607, lng: 67.0011 }); mapInstance.current?.setZoom(12); }} className="px-3 py-1.5 rounded-md text-xs bg-black/60 text-gray-400 border border-white/10 hover:text-white backdrop-blur-sm">🎯 Reset</button>
-      </div>
-
-      {/* Road blocks overlay */}
-      {trafficActions.filter(a => a.action === 'block').length > 0 && (
-        <div className="absolute top-3 left-3 z-10 glass-card p-3 max-w-xs">
-          <div className="text-xs font-semibold text-red-400 mb-2">🚫 ROAD BLOCKS ({trafficActions.filter(a => a.action === 'block').length})</div>
-          {trafficActions.filter(a => a.action === 'block').slice(0, 3).map((ta, i) => (
-            <div key={i} className="text-xs text-gray-400 mb-1">
-              <span className="text-red-400">●</span> {ta.area}
-              {ta.alternative_route && <span className="text-green-400 block ml-3">↳ {ta.alternative_route}</span>}
+    return (
+      <div className="relative w-full h-full" style={{ background: '#09090b' }}>
+        
+        {/* Map command overlay controls */}
+        <div className="absolute top-3 right-3 z-10 flex flex-col gap-2 select-none font-sans">
+          <button onClick={() => setShowTraffic(v => !v)} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider backdrop-blur-md transition-all border ${showTraffic ? 'bg-zinc-800 text-white border-zinc-700' : 'bg-zinc-900/90 text-zinc-400 border-zinc-800'}`}>🚦 Traffic Layer</button>
+          <button onClick={() => { mapInstance.current?.setCenter({ lat: 24.8607, lng: 67.0011 }); mapInstance.current?.setZoom(12); }} className="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-[#09090b]/90 text-zinc-300 border border-zinc-800 hover:text-white hover:border-zinc-700 backdrop-blur-md transition-all">🎯 Recenter Map</button>
+        </div>
+  
+        {/* Roadblocks logs overlay */}
+        {trafficActions.filter(a => a.action === 'block').length > 0 && (
+          <div className="absolute top-3 left-3 z-10 p-3.5 max-w-xs bg-zinc-950/95 border border-red-500/30 rounded-lg font-sans shadow-lg">
+            <div className="text-[10px] font-bold text-red-400 mb-2 tracking-wider flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              <span>🚫 Active Roadblocks ({trafficActions.filter(a => a.action === 'block').length})</span>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* ETA panel — dispatched units */}
-      {dispatchedUnits.length > 0 && (
-        <div className="absolute bottom-3 right-3 z-10 glass-card p-3 max-w-[220px] space-y-1.5">
-          <div className="text-xs font-bold text-white mb-2">🚨 DISPATCHED UNITS</div>
-          {dispatchedUnits.slice(0, 8).map(u => {
-            const eta = etaDisplay[u.id];
-            const arrived = eta === 0;
-            const col = RESOURCE_COLORS[u.type] || '#f97316';
-            return (
-              <div key={u.id} className={`flex items-center gap-2 p-1.5 rounded-lg cursor-pointer transition-all ${selectedUnit === u.id ? 'bg-white/10' : 'hover:bg-white/5'}`} onClick={() => setSelectedUnit(u.id)}>
-                <span className="text-sm">{RESOURCE_EMOJIS[u.type]}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs text-white font-medium truncate">{u.id}</div>
-                  <div className="text-xs text-gray-500 truncate">{u.assigned_crisis_id ? 'En route' : u.location}</div>
+            <div className="space-y-2 pr-1 max-h-48 overflow-y-auto">
+              {trafficActions.filter(a => a.action === 'block').map((ta, i) => (
+                <div key={i} className="text-[9.5px] text-zinc-300 border-b border-zinc-800/60 pb-1.5 last:border-0 last:pb-0">
+                  <span className="text-red-400 font-semibold">● Closed Area:</span> {ta.area}
+                  {ta.alternative_route && <span className="text-emerald-400 block mt-0.5 font-semibold">↳ Detour: {ta.alternative_route}</span>}
                 </div>
-                <div className="text-right flex-shrink-0">
-                  {arrived
-                    ? <span className="text-xs text-green-400 font-bold">ON SCENE</span>
-                    : eta !== undefined
-                      ? <span className="text-xs font-bold" style={{ color: col }}>{eta}m</span>
-                      : <span className="text-xs text-gray-600">—</span>
-                  }
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Severity legend */}
-      <div className="absolute bottom-3 left-3 z-10 glass-card p-3 space-y-1">
-        <div className="text-xs font-semibold text-gray-500 mb-2">SEVERITY</div>
-        {Object.entries(SEVERITY_COLORS).map(([s, col]) => (
-          <div key={s} className="flex items-center gap-2 text-xs">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: col }} />
-            <span className="text-gray-400">{s}</span>
+              ))}
+            </div>
           </div>
-        ))}
-        <div className="border-t border-white/10 mt-2 pt-2 space-y-1">
-          {Object.entries(RESOURCE_EMOJIS).map(([type, icon]) => (
-            <div key={type} className="flex items-center gap-1.5 text-xs">
-              <span>{icon}</span>
-              <span className="text-gray-500 capitalize">{type.replace('_', ' ')}</span>
+        )}
+  
+        {/* Deployed operational assets widget */}
+        {dispatchedUnits.length > 0 && (
+          <div className="absolute bottom-3 right-3 z-10 hud-panel p-3.5 max-w-[240px] space-y-2.5 bg-zinc-950/95 border-zinc-800 rounded-lg shadow-lg">
+            <div className="text-[9.5px] font-bold text-zinc-300 tracking-wider flex items-center gap-2 border-b border-zinc-800 pb-1.5 uppercase select-none font-sans">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-ping" />
+              <span>Active Deployments</span>
             </div>
-          ))}
+            <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+              {dispatchedUnits.slice(0, 8).map(u => {
+                const eta = etaDisplay[u.id];
+                const arrived = eta === 0;
+                const col = RESOURCE_COLORS[u.type] || '#ffaa00';
+                const sectorTarget = u.assigned_crisis_id ? `ID-${u.assigned_crisis_id.slice(0, 4).toUpperCase()}` : 'STANDBY';
+                return (
+                  <div key={u.id} className={`flex items-center gap-2.5 p-1.5 rounded cursor-pointer transition-all border border-zinc-800/20 ${selectedUnit === u.id ? 'bg-zinc-800 text-zinc-200 border-zinc-700' : 'bg-zinc-900/40 hover:border-zinc-800'}`} onClick={() => setSelectedUnit(u.id)}>
+                    <span className="text-base">{RESOURCE_EMOJIS[u.type]}</span>
+                    <div className="flex-1 min-w-0 font-sans">
+                      <div className="text-[9px] text-zinc-200 font-bold truncate uppercase">{u.id.replace('ambulance', 'AMB').replace('police', 'POL').replace('fire_unit', 'FIR').replace('rescue', 'RSC').replace('utility', 'UTL')}</div>
+                      <div className="text-[7.5px] text-zinc-500 font-semibold truncate">Target: {sectorTarget}</div>
+                    </div>
+                    <div className="text-right flex-shrink-0 font-sans">
+                      {arrived
+                        ? <span className="text-[8.5px] text-emerald-400 font-bold tracking-wide">On Scene</span>
+                        : eta !== undefined
+                          ? <span className="text-[9.5px] font-bold" style={{ color: col }}>{eta}m ETA</span>
+                          : <span className="text-[9.5px] text-zinc-600">—</span>
+                      }
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+  
+        {/* Incident legend card */}
+        <div className="absolute bottom-3 left-3 z-10 hud-panel p-3.5 space-y-2.5 bg-zinc-950/95 max-w-[200px] border-zinc-800 rounded-lg shadow-lg">
+          <div className="text-[9.5px] font-bold text-zinc-500 border-b border-zinc-800 pb-1.5 uppercase select-none tracking-wider font-sans">Incident Legend</div>
+          <div className="space-y-1.5 font-sans">
+            {Object.entries(SEVERITY_COLORS).map(([s, col]) => (
+              <div key={s} className="flex items-center gap-2 text-[9.5px]">
+                <span className="w-2 h-2 rounded-sm" style={{ background: col, border: '1px solid rgba(255,255,255,0.2)' }} />
+                <span className="text-zinc-400 font-semibold">{s}</span>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 text-[9.5px]">
+              <span className="w-2 h-2 rounded-sm bg-zinc-600 opacity-60 border border-zinc-500" />
+              <span className="text-zinc-400 font-semibold">Standby Unit</span>
+            </div>
+          </div>
+          <div className="border-t border-zinc-800 pt-2 space-y-1.5 select-none font-sans">
+            {Object.entries(RESOURCE_EMOJIS).map(([type, icon]) => (
+              <div key={type} className="flex items-center gap-2 text-[9.5px] font-semibold text-zinc-500">
+                <span>{icon}</span>
+                <span className="capitalize">{type.replace('_', ' ')}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Map div */}
+      {/* Google Maps div */}
       <div ref={mapRef} className="w-full h-full" />
 
-      {/* SVG fallback */}
+      {/* Offline Vector Map Fallback Grid */}
       {mapError && <SvgMapFallback crises={crises} resources={resources} etaDisplay={etaDisplay} />}
     </div>
   );
 }
 
-// ── SVG fallback with animated resources ────────────────────
+// ── SvgMapFallback Offline View ────────────────────
 function SvgMapFallback({ crises, resources, etaDisplay }: { crises: CrisisEvent[]; resources: ResourceUnit[]; etaDisplay: Record<string,number> }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -337,7 +471,6 @@ function SvgMapFallback({ crises, resources, etaDisplay }: { crises: CrisisEvent
   const active = crises.filter(c => c.status === 'active');
   const dispatched = resources.filter(r => r.status === 'dispatched' || r.status === 'on_scene');
 
-  // Fixed positions for the SVG grid
   const crisisPositions = active.slice(0, 6).map((_, i) => ({ x: 80 + (i % 3) * 110, y: 70 + Math.floor(i / 3) * 100 }));
   const unitPositions = dispatched.slice(0, 6).map((u, i) => {
     const cIdx = active.findIndex(c => c.id === u.assigned_crisis_id);
@@ -348,73 +481,87 @@ function SvgMapFallback({ crises, resources, etaDisplay }: { crises: CrisisEvent
   });
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-start bg-gray-900 p-4 overflow-auto">
-      <div className="text-xs text-gray-500 mb-2 text-center">📍 Karachi Emergency Grid (add Google Maps key for live map)</div>
+    <div className="absolute inset-0 flex flex-col items-center justify-start bg-[#09090b] p-4 overflow-auto font-sans">
+      <div className="text-[10px] text-zinc-400 mb-2 text-center uppercase tracking-wider font-semibold flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+        <span>📍 Offline Incident Grid (Satellite Link Active)</span>
+      </div>
       <div className="w-full max-w-lg">
-        <svg viewBox="0 0 400 280" className="w-full rounded-xl border border-white/10" style={{ background: '#0d1b2a' }}>
-          {/* Grid */}
-          {[60,120,180,240,300,360].map(x => <line key={x} x1={x} y1="0" x2={x} y2="280" stroke="#1e3a5f" strokeWidth="0.4"/>)}
-          {[40,80,120,160,200,240].map(y => <line key={y} x1="0" y1={y} x2="400" y2={y} stroke="#1e3a5f" strokeWidth="0.4"/>)}
-          {/* Sea */}
-          <rect x="0" y="240" width="400" height="40" fill="#0a1628"/>
-          <text x="200" y="262" textAnchor="middle" fill="#1e4080" fontSize="9">Arabian Sea</text>
-          {/* Crisis markers */}
+        <svg viewBox="0 0 400 280" className="w-full rounded border border-zinc-800" style={{ background: '#09090b' }}>
+          {/* Subtle Grid lines */}
+          {[60,120,180,240,300,360].map(x => <line key={x} x1={x} y1="0" x2={x} y2="280" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5"/>)}
+          {[40,80,120,160,200,240].map(y => <line key={y} x1="0" y1={y} x2="400" y2={y} stroke="rgba(255,255,255,0.03)" strokeWidth="0.5"/>)}
+          {/* Radar Circles */}
+          <circle cx="200" cy="140" r="50" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="1" strokeDasharray="3,3" />
+          <circle cx="200" cy="140" r="100" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="1" />
+          {/* Shoreline */}
+          <rect x="0" y="240" width="400" height="40" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+          <text x="200" y="262" textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="8" fontWeight="bold" letterSpacing="0.1em">Arabian Sea Sector</text>
+          
+          {/* Radar validated objectives */}
           {active.slice(0, 6).map((c, i) => {
             const pos = crisisPositions[i];
             const col = SEVERITY_COLORS[c.severity] || '#64748b';
-            const pulse = Math.sin(tick * 0.5 + i) > 0;
+            const pulse = Math.sin(tick * 0.4 + i) > 0;
+            const targetId = c.id.slice(0, 4).toUpperCase();
             return (
               <g key={c.id}>
-                <circle cx={pos.x} cy={pos.y} r={pulse ? 22 : 18} fill={col} opacity="0.12"/>
-                <circle cx={pos.x} cy={pos.y} r="10" fill={col} opacity="0.9" stroke="white" strokeWidth="1.5"/>
-                <text x={pos.x} y={pos.y+4} textAnchor="middle" fontSize="9" fill="white">{CRISIS_ICONS[c.type]}</text>
-                <text x={pos.x} y={pos.y+22} textAnchor="middle" fontSize="6" fill="#9ca3af">{c.location}</text>
-                <text x={pos.x+12} y={pos.y-10} fontSize="5" fill={col} fontWeight="bold">{c.severity}</text>
+                {/* Locking Bracket indicators */}
+                <circle cx={pos.x} cy={pos.y} r={pulse ? 18 : 15} fill="none" stroke={col} opacity="0.4" strokeWidth="0.8" strokeDasharray="4,4"/>
+                <circle cx={pos.x} cy={pos.y} r="8" fill={col} opacity="0.8" stroke="#ffffff" strokeWidth="1.2"/>
+                <text x={pos.x} y={pos.y+3} textAnchor="middle" fontSize="9" fill="white">{CRISIS_ICONS[c.type]}</text>
+                
+                {/* Target Locks Coordinates */}
+                <text x={pos.x} y={pos.y+20} textAnchor="middle" fontSize="6.5" fill="#cbd5e1" fontWeight="bold">ID-{targetId}</text>
+                <text x={pos.x+10} y={pos.y-8} fontSize="5.5" fill={col} fontWeight="bold">{c.severity}</text>
               </g>
             );
           })}
-          {/* Moving units */}
+          
+          {/* Active units telemetry march */}
           {unitPositions.map(({ x, y, unit, prog }) => {
-            const col = RESOURCE_COLORS[unit.type] || '#f97316';
+            const col = RESOURCE_COLORS[unit.type] || '#ffaa00';
             const eta = etaDisplay[unit.id];
+            const arrived = prog >= 1;
             return (
               <g key={unit.id}>
-                <circle cx={x} cy={y} r={prog >= 1 ? 9 : 7} fill={prog >= 1 ? '#22c55e' : col} opacity="0.95" stroke="white" strokeWidth="1.2"/>
-                <text x={x} y={y+3} textAnchor="middle" fontSize="7">{RESOURCE_EMOJIS[unit.type]}</text>
+                <circle cx={x} cy={y} r={arrived ? 8 : 6.5} fill={arrived ? '#10b981' : col} opacity="0.95" stroke="#ffffff" strokeWidth="1.2"/>
+                <text x={x} y={y+2} textAnchor="middle" fontSize="6.5">{RESOURCE_EMOJIS[unit.type]}</text>
                 {eta !== undefined && eta > 0 && (
-                  <text x={x} y={y-12} textAnchor="middle" fontSize="6" fill={col} fontWeight="bold">{eta}m</text>
+                  <text x={x} y={y-10} textAnchor="middle" fontSize="6" fill={col} fontWeight="bold">{eta}m ETA</text>
                 )}
-                {prog >= 1 && <text x={x} y={y-12} textAnchor="middle" fontSize="6" fill="#22c55e" fontWeight="bold">ON SCENE</text>}
+                {arrived && <text x={x} y={y-10} textAnchor="middle" fontSize="5.5" fill="#10b981" fontWeight="bold">On Scene</text>}
               </g>
             );
           })}
-          {/* Route lines */}
+          
+          {/* Marched vector routes */}
           {unitPositions.map(({ x, y, unit, prog }, i) => {
             const cIdx = active.findIndex(c => c.id === unit.assigned_crisis_id);
             if (cIdx < 0) return null;
             const target = crisisPositions[cIdx];
             return (
               <line key={`route-${i}`} x1={x} y1={y} x2={target.x} y2={target.y}
-                stroke={RESOURCE_COLORS[unit.type] || '#f97316'} strokeWidth="1" strokeDasharray="4,4" opacity="0.4"/>
+                stroke="#475569" strokeWidth="1" strokeDasharray="2,3" opacity="0.6"/>
             );
           })}
         </svg>
 
-        {/* ETA list below map */}
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        {/* Dynamic status list */}
+        <div className="mt-3 grid grid-cols-2 gap-2.5">
           {dispatched.slice(0, 6).map(u => {
             const eta = etaDisplay[u.id];
             return (
-              <div key={u.id} className="flex items-center gap-2 p-2 rounded-lg bg-white/5 border border-white/5">
+              <div key={u.id} className="flex items-center gap-2.5 p-2 rounded border border-zinc-800 bg-[#09090b] text-[9.5px]">
                 <span>{RESOURCE_EMOJIS[u.type]}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-white font-medium truncate">{u.id}</div>
-                  <div className="confidence-bar mt-1">
-                    <div className="confidence-fill" style={{ width: `${Math.min(100, (1 - (eta || 0) / (u.eta_minutes || 12)) * 100)}%`, background: RESOURCE_COLORS[u.type] }}/>
+                  <div className="text-zinc-200 font-bold truncate uppercase">{u.id.replace('ambulance', 'AMB').replace('police', 'POL').replace('fire_unit', 'FIR').replace('rescue', 'RSC').replace('utility', 'UTL')}</div>
+                  <div className="telemetry-bar mt-1.5">
+                    <div className="telemetry-fill" style={{ width: `${Math.min(100, (1 - (eta || 0) / (u.eta_minutes || 12)) * 100)}%`, background: RESOURCE_COLORS[u.type] }}/>
                   </div>
                 </div>
-                <span className="text-xs font-bold flex-shrink-0" style={{ color: RESOURCE_COLORS[u.type] }}>
-                  {eta === 0 ? '✅' : `${eta ?? '?'}m`}
+                <span className="text-[9.5px] font-bold flex-shrink-0" style={{ color: RESOURCE_COLORS[u.type] }}>
+                  {eta === 0 ? 'On Scene' : `${eta ?? '?'}m`}
                 </span>
               </div>
             );
@@ -433,37 +580,69 @@ function getCoords(location: string): [number, number] | null {
 }
 
 function buildCrisisInfoHtml(c: CrisisEvent) {
-  const col = SEVERITY_COLORS[c.severity];
-  return `<div style="background:#111827;color:#fff;padding:12px;border-radius:8px;min-width:220px;font-family:system-ui;border:1px solid ${col}40">
-    <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em">${c.severity} · ${c.type.replace('_',' ')}</div>
-    <div style="font-size:13px;font-weight:700;margin:4px 0">📍 ${c.location}</div>
-    <div style="font-size:11px;color:#9ca3af;margin-bottom:8px">${c.description?.slice(0,120) || ''}</div>
-    <div style="display:flex;gap:12px;font-size:11px;color:#6b7280">
-      <span>🎯 ${(c.confidence*100).toFixed(0)}% conf</span>
-      <span>📏 ${c.affected_radius_km}km</span>
-      <span>⏱ ${c.expected_duration_hours}h</span>
+  const col = SEVERITY_COLORS[c.severity] || '#64748b';
+  const targetId = c.id.slice(0, 4).toUpperCase();
+  return `<div style="background:#09090b;color:#f4f4f5;padding:12px;border-radius:6px;min-width:240px;font-family:system-ui, -apple-system, sans-serif;border:1px solid #27272a;box-shadow:0 8px 24px rgba(0,0,0,0.5)">
+    <div style="font-size:9px;color:${col};text-transform:uppercase;letter-spacing:0.05em;font-weight:700;margin-bottom:4px">Incident ID: ${targetId} · Severity: ${c.severity}</div>
+    <div style="font-size:12px;font-weight:800;margin:6px 0;color:#fff;">📍 Location: ${c.location}</div>
+    <div style="font-size:10px;color:#a1a1aa;margin-bottom:8px;line-height:1.4">${c.description?.slice(0,140) || ''}</div>
+    <div style="display:grid;grid-template-cols:1fr 1fr;gap:6px;font-size:9.5px;color:#a1a1aa;border-top:1px solid #27272a;padding-top:8px">
+      <span>Confidence: <b style="color:#f4f4f5">${(c.confidence*100).toFixed(0)}%</b></span>
+      <span>Impact Area: <b style="color:#f4f4f5">${c.affected_radius_km} km</b></span>
+      <span>Est. Duration: <b style="color:#f4f4f5">${c.expected_duration_hours}h</b></span>
+      ${c.escalation_probability !== undefined ? `<span>Escalation Risk: <b style="color:#ffaa00">${(c.escalation_probability*100).toFixed(0)}%</b></span>` : ''}
     </div>
-    ${c.escalation_probability !== undefined ? `<div style="margin-top:6px;font-size:10px;color:#f97316">📈 Escalation: ${(c.escalation_probability*100).toFixed(0)}%</div>` : ''}
   </div>`;
 }
 
 function buildUnitInfoHtml(u: ResourceUnit, eta: number) {
-  const col = RESOURCE_COLORS[u.type];
-  return `<div style="background:#111827;color:#fff;padding:10px;border-radius:8px;min-width:160px;font-family:system-ui;border:1px solid ${col}50">
-    <div style="font-size:11px;font-weight:700">${RESOURCE_EMOJIS[u.type]} ${u.id}</div>
-    <div style="font-size:10px;color:#9ca3af;margin:3px 0">${u.type.replace('_',' ')} · ${u.location}</div>
-    <div style="font-size:12px;color:${col};font-weight:700;margin-top:4px">ETA: ${eta} min</div>
-    <div style="font-size:10px;color:#6b7280;margin-top:2px">Status: ${u.status}</div>
+  const col = RESOURCE_COLORS[u.type] || '#ffaa00';
+  const shortId = u.id.replace('ambulance', 'AMB').replace('police', 'POL').replace('fire_unit', 'FIR').replace('rescue', 'RSC').replace('utility', 'UTL').toUpperCase();
+  return `<div style="background:#09090b;color:#f4f4f5;padding:10px;border-radius:6px;min-width:180px;font-family:system-ui, -apple-system, sans-serif;border:1px solid #27272a;box-shadow:0 8px 24px rgba(0,0,0,0.5)">
+    <div style="font-size:10px;font-weight:800;color:#fff">${RESOURCE_EMOJIS[u.type]} Unit ${shortId}</div>
+    <div style="font-size:8.5px;color:#a1a1aa;margin:4px 0 6px 0">Type: ${u.type.toUpperCase()} · Location: ${u.location}</div>
+    <div style="font-size:11px;color:${col};font-weight:800;">ETA: ${eta} Min</div>
+    <div style="font-size:9px;color:#a1a1aa;margin-top:2px">Status: ${u.status.replace('_', ' ')}</div>
+  </div>`;
+}
+
+function buildManualDispatchHtml(u: ResourceUnit, activeCrises: CrisisEvent[]) {
+  const shortId = u.id.replace('ambulance', 'AMB').replace('police', 'POL').replace('fire_unit', 'FIR').replace('rescue', 'RSC').replace('utility', 'UTL').toUpperCase();
+  const optionsHtml = activeCrises.map(c => {
+    const targetId = c.id.slice(0, 4).toUpperCase();
+    return `<option value="${c.id}" style="color:#000;">ID-${targetId} · ${c.type.toUpperCase()} at ${c.location}</option>`;
+  }).join('');
+
+  return `<div style="background:#09090b;color:#f4f4f5;padding:12px;border-radius:6px;min-width:260px;font-family:system-ui, -apple-system, sans-serif;border:1px solid #27272a;box-shadow:0 8px 24px rgba(0,0,0,0.5)">
+    <div style="font-size:11px;font-weight:800;color:#fff;display:flex;align-items:center;gap:6px">
+      <span style="width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;"></span>
+      Unit ${shortId} (Standby)
+    </div>
+    <div style="font-size:8.5px;color:#a1a1aa;margin:4px 0 10px 0">Hub Location: ${u.location}</div>
+    
+    <div>
+      <label style="font-size:9px;color:#a1a1aa;display:block;margin-bottom:6px;font-weight:700;">Manual Dispatch Override:</label>
+      ${activeCrises.length === 0 
+        ? `<div style="font-size:9px;color:#f43f5e;font-style:italic;margin-bottom:6px">No active validated incidents to dispatch to.</div>`
+        : `<select id="manual_crisis_select_${u.id}" style="width:100%;background:#18181b;color:#f4f4f5;border:1px solid #27272a;border-radius:4px;padding:5px;font-size:10px;margin-bottom:8px;outline:none;">
+            <option value="" style="color:#000;">-- Select Incident Target --</option>
+            ${optionsHtml}
+           </select>
+           <button onclick="window.dispatchUnitManually('${u.id}', document.getElementById('manual_crisis_select_${u.id}').value)" style="width:100%;background:#f4f4f5;color:#09090b;border:none;border-radius:4px;padding:6px;font-size:10px;font-weight:700;cursor:pointer;transition:all 0.2s;">
+             Authorize Dispatch
+           </button>`
+      }
+    </div>
   </div>`;
 }
 
 const darkMapStyles: google.maps.MapTypeStyle[] = [
-  { elementType:'geometry', stylers:[{color:'#0d1b2a'}] },
-  { elementType:'labels.text.stroke', stylers:[{color:'#0d1b2a'}] },
-  { elementType:'labels.text.fill', stylers:[{color:'#746855'}] },
-  { featureType:'road', elementType:'geometry', stylers:[{color:'#38414e'}] },
-  { featureType:'road', elementType:'labels.text.fill', stylers:[{color:'#9ca5b3'}] },
-  { featureType:'road.highway', elementType:'geometry', stylers:[{color:'#746855'}] },
-  { featureType:'water', elementType:'geometry', stylers:[{color:'#0a1628'}] },
+  { elementType:'geometry', stylers:[{color:'#09090b'}] },
+  { elementType:'labels.text.stroke', stylers:[{color:'#09090b'}] },
+  { elementType:'labels.text.fill', stylers:[{color:'#e4e4e7'}] },
+  { featureType:'road', elementType:'geometry', stylers:[{color:'#18181b'}] },
+  { featureType:'road', elementType:'labels.text.fill', stylers:[{color:'#71717a'}] },
+  { featureType:'road.highway', elementType:'geometry', stylers:[{color:'#27272a'}] },
+  { featureType:'water', elementType:'geometry', stylers:[{color:'#09090b'}] },
   { featureType:'poi', elementType:'labels', stylers:[{visibility:'off'}] },
 ];

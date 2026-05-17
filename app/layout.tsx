@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
-      <body className={`${inter.variable} font-sans antialiased bg-gray-950 text-white`}>
+      <body className={`${inter.variable} font-sans antialiased bg-[#090c10] text-[#f0f6fc] grid-background relative min-h-screen`}>
         {children}
       </body>
     </html>

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getLogs, getLogStats, clearLogs } from '@/lib/logger';
 import type { LogLevel, LogCategory } from '@/lib/logger';
-import { fetchHistoricalLogs, isSupabaseEnabled } from '@/lib/supabase';
+import { fetchHistoricalLogs, isSupabaseEnabled, getSupabase } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -64,5 +65,15 @@ export async function GET(req: Request) {
 
 export async function DELETE() {
   clearLogs();
+  
+  if (isSupabaseEnabled()) {
+    try {
+      const { error } = await getSupabase().from('ciro_logs').delete().neq('id', '');
+      if (error) console.warn('[Supabase] Failed to clear Supabase logs:', error.message);
+    } catch (e) {
+      console.warn('[Supabase] Failed to clear Supabase logs:', e);
+    }
+  }
+  
   return NextResponse.json({ success: true, message: 'All logs cleared' });
 }

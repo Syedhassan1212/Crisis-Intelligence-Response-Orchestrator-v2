@@ -1,38 +1,88 @@
 'use client';
 
-import type { CrisisEvent, OrchestratorState, WeatherData } from '@/lib/types';
+import { ShieldAlert, AlertTriangle } from 'lucide-react';
+import type { CrisisEvent, ResourceUnit, FusedSignal } from '@/lib/types';
+
+const Marquee = 'marquee' as any;
 
 interface StatusBarProps {
   crises: CrisisEvent[];
-  resources: OrchestratorState['resources'];
-  notifications: OrchestratorState['notifications'];
-  weather?: WeatherData;
+  resources: ResourceUnit[];
+  notifications: any[];
+  weather?: any;
 }
 
-export default function StatusBar({ crises, resources, notifications, weather }: StatusBarProps) {
+export default function StatusBar({ crises, resources, notifications }: StatusBarProps) {
   const active = crises.filter(c => c.status === 'active');
   const critical = active.filter(c => c.severity === 'CRITICAL');
+  const high = active.filter(c => c.severity === 'HIGH');
+  
   const dispatched = resources.filter(r => r.status === 'dispatched' || r.status === 'on_scene');
-  const available = resources.filter(r => r.status === 'available');
+  const standby = resources.filter(r => r.status === 'available');
+
+  // Compute mock stats dynamic values
+  const interceptRate = active.length * 2 + 3;
+  const dispatchRatio = `${dispatched.length}/${resources.length}`;
+  const systemLoadPercentage = Math.min(Math.round((dispatched.length / (resources.length || 1)) * 100 + 15), 100);
+
+  // Filter or join notifications to form the alert marquee content
+  const warningTexts = notifications.length > 0
+    ? notifications.map(n => n.message).join('  •  ')
+    : 'System Operational Status Nominal  •  Awaiting Telemetry Grid Intercepts  •  Karachi Operations Zone Stable';
 
   return (
-    <div className="flex items-center gap-0 text-xs border-b border-white/5 bg-gray-900/60 overflow-x-auto flex-shrink-0">
-      {[
-        { label: 'CRITICAL EVENTS', value: critical.length, color: critical.length > 0 ? 'text-red-400' : 'text-gray-500', bg: critical.length > 0 ? 'bg-red-900/20' : '' },
-        { label: 'ACTIVE INCIDENTS', value: active.length, color: 'text-amber-400', bg: '' },
-        { label: 'UNITS DEPLOYED', value: dispatched.length, color: 'text-orange-400', bg: '' },
-        { label: 'UNITS AVAILABLE', value: available.length, color: 'text-green-400', bg: '' },
-        { label: 'ALERTS SENT', value: notifications.length, color: 'text-purple-400', bg: '' },
-        ...(weather ? [{ label: `KARACHI ${weather.condition?.toUpperCase()}`, value: `${weather.temperature.toFixed(0)}°C`, color: 'text-cyan-400', bg: '' }] : []),
-      ].map((item, i) => (
-        <div key={i} className={`flex items-center gap-2 px-4 py-2 border-r border-white/5 ${item.bg} whitespace-nowrap`}>
-          <span className="text-gray-600">{item.label}</span>
-          <span className={`font-bold font-mono ${item.color}`}>{item.value}</span>
+    <div className="h-14 mt-16 bg-[#0b0e15] border-b border-zinc-800 flex items-center px-6 gap-6 relative z-30 select-none">
+      
+      {/* 1. Left Telemetry Sections */}
+      <div className="flex items-center gap-6 border-r border-zinc-800 pr-6">
+        
+        {/* Intercept Rate */}
+        <div className="flex flex-col font-mono">
+          <span className="text-[8px] font-semibold text-zinc-500 uppercase tracking-widest leading-none">INTERCEPT RATE</span>
+          <span className="text-[12px] font-bold text-sky-400 mt-1">{interceptRate} Intercepts/Min</span>
         </div>
-      ))}
-      <div className="px-4 py-2 text-gray-700 text-xs ml-auto whitespace-nowrap">
-        Karachi Emergency Command Grid • {new Date().toLocaleDateString()}
+
+        {/* Asset Load */}
+        <div className="flex flex-col font-mono">
+          <span className="text-[8px] font-semibold text-zinc-500 uppercase tracking-widest leading-none">ASSET LOAD</span>
+          <span className="text-[12px] font-bold text-amber-500 mt-1">{dispatchRatio} Dispatched</span>
+        </div>
+
       </div>
+
+      {/* 2. System Load Indicator */}
+      <div className="flex-1 flex items-center gap-4 px-4 min-w-0">
+        <span className="text-[8px] font-mono font-semibold text-zinc-500 uppercase tracking-widest whitespace-nowrap">SYSTEM LOAD</span>
+        
+        {/* Progress Bar Container */}
+        <div className="w-32 h-1.5 bg-zinc-900 rounded-full overflow-hidden flex-shrink-0 border border-zinc-850">
+          <div 
+            className="h-full bg-sky-400 rounded-full transition-all duration-500 ease-in-out" 
+            style={{ width: `${systemLoadPercentage}%` }}
+          />
+        </div>
+
+        {/* Marquee warning ribbon */}
+        <div className="flex-1 min-w-0 flex items-center gap-3 bg-red-500/5 px-4 py-1.5 border border-red-500/20 rounded">
+          <ShieldAlert className="w-3.5 h-3.5 text-red-400 flex-shrink-0 animate-pulse" />
+          <Marquee className="font-mono text-red-400 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap">
+            {warningTexts}
+          </Marquee>
+        </div>
+      </div>
+
+      {/* 3. Threat counters */}
+      <div className="flex items-center gap-2 pl-6 border-l border-zinc-800">
+        <div className="flex gap-1.5 font-mono">
+          <span className="px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded text-[9px] font-extrabold">
+            {critical.length} CRITICAL
+          </span>
+          <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded text-[9px] font-extrabold">
+            {high.length} HIGH
+          </span>
+        </div>
+      </div>
+
     </div>
   );
 }

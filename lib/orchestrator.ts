@@ -9,14 +9,18 @@ import type {
 } from './types';
 import { fetchSocialPosts, fetchWeatherData, fetchTrafficData, fuseSocialSignals, getDefaultResources } from './ingestion';
 import {
-  classifyCrisis, predictRisk, optimizeResourceAllocation,
-  simulateOutcome, generateNotificationMessages, buildDecisionLog, summarizeSignals
+  analyzeCrisisBrain, planResponseBrain,
+  buildDecisionLog, summarizeSignals
 } from './gemini';
 import { logInfo, logSuccess, logWarn, logError, setGlobalCycle, getLogs } from './logger';
 import { persistLogs, persistCrises, persistAllocations, persistNotifications, persistCycle, isSupabaseEnabled } from './supabase';
 
-// In-memory state (in production: use Redis or Supabase)
-let state: OrchestratorState = {
+// Use globalThis to maintain a single global state across Next.js Turbopack dev compilations
+const globalForOrchestrator = globalThis as unknown as {
+  state?: OrchestratorState;
+};
+
+export let state: OrchestratorState = globalForOrchestrator.state ?? {
   cycle: 0,
   lastUpdated: new Date().toISOString(),
   crises: [],
@@ -28,7 +32,19 @@ let state: OrchestratorState = {
   notifications: [],
   decisionLogs: [],
   systemStatus: 'idle',
+  weatherData: {
+    location: 'Karachi',
+    temperature: 32.5,
+    condition: 'Partly Cloudy',
+    humidity: 68,
+    windSpeed: 14,
+    rainfall: 0,
+    forecast: 'Sunny',
+    fetchedAt: new Date().toISOString()
+  }
 };
+
+globalForOrchestrator.state = state;
 
 export function getState(): OrchestratorState {
   return state;
@@ -36,8 +52,8 @@ export function getState(): OrchestratorState {
 
 export function resetState() {
   state = {
-    ...state,
     cycle: 0,
+    lastUpdated: new Date().toISOString(),
     crises: [],
     signals: [],
     resources: getDefaultResources() as ResourceUnit[],
@@ -48,6 +64,7 @@ export function resetState() {
     decisionLogs: [],
     systemStatus: 'idle',
   };
+  globalForOrchestrator.state = state;
 }
 
 // ── Main Orchestration Cycle ─────────────────────────────────
@@ -105,8 +122,7 @@ export async function runCycle(): Promise<OrchestratorState> {
       const toProcess = highConfidenceSignals.slice(0, 3);
       for (const signal of toProcess) {
         try {
-          let crisis = await classifyCrisis(signal);
-          crisis = await predictRisk(crisis);
+          const crisis = await analyzeCrisisBrain(signal);
           newCrises.push(crisis);
         } catch (err) {
           logError('CRISIS_DETECTION', 'Orchestrator', 'CLASSIFY_FALLBACK',
@@ -144,16 +160,22 @@ export async function runCycle(): Promise<OrchestratorState> {
     ));
 
     // ── Step 4: Resource Allocation ──────────────────────────
+    // ── Step 4 & 5 & 7: Unified Response Planning ────────────
     const activeCrises = state.crises.filter(c => c.status === 'active');
     const availableResources = state.resources.filter(r => r.status === 'available');
     const newAllocations: AllocationPlan[] = [];
+    const newSimulations: SimulationResult[] = [];
+    const newNotifications: Notification[] = [];
 
     for (const crisis of activeCrises.slice(0, 3)) {
       const alreadyAllocated = state.allocations.find(a => a.crisis_id === crisis.id);
       if (!alreadyAllocated) {
         try {
-          const plan = await optimizeResourceAllocation(crisis, availableResources);
+          const { plan, simulation, notifications } = await planResponseBrain(crisis, availableResources);
           newAllocations.push(plan);
+          newSimulations.push(simulation);
+          newNotifications.push(...notifications);
+          
           // Mark resources as dispatched with ETA + coords
           for (const unit of plan.units) {
             const idx = state.resources.findIndex(r => r.id === unit.id);
@@ -163,36 +185,22 @@ export async function runCycle(): Promise<OrchestratorState> {
                 status: 'dispatched',
                 eta_minutes: plan.total_response_time_minutes,
                 assigned_crisis_id: crisis.id,
-                // Start position = base depot coords if not set
                 lat: state.resources[idx].lat ?? (24.8607 + (Math.random() - 0.5) * 0.08),
                 lng: state.resources[idx].lng ?? (67.0011 + (Math.random() - 0.5) * 0.08),
               };
             }
           }
         } catch (err) {
-          logWarn('RESOURCE_ALLOCATION', 'Orchestrator', 'ALLOC_FALLBACK',
-            `Gemini allocation failed for ${crisis.id}: ${err} — using type-based fallback`, { errorMessage: String(err) });
+          logWarn('RESPONSE_PLANNER', 'Orchestrator', 'PLAN_FALLBACK',
+            `Unified planning failed for ${crisis.id}: ${err} — using heuristics`, { errorMessage: String(err) });
           newAllocations.push(buildFallbackAllocation(crisis, availableResources));
+          newNotifications.push(buildFallbackNotification(crisis));
         }
       }
     }
     state.allocations = [...state.allocations, ...newAllocations].slice(0, 30);
-
-    // ── Step 5: Simulation ───────────────────────────────────
-    const newSimulations: SimulationResult[] = [];
-    for (const alloc of newAllocations.slice(0, 2)) {
-      const crisis = state.crises.find(c => c.id === alloc.crisis_id);
-      if (crisis) {
-        try {
-          const sim = await simulateOutcome(crisis, alloc);
-          newSimulations.push(sim);
-        } catch {
-          // Skip simulation on error
-        }
-      }
-    }
     state.simulations = [...newSimulations, ...state.simulations].slice(0, 10);
-
+    
     // ── Step 6: Traffic Control ──────────────────────────────
     logInfo('TRAFFIC_CONTROL', 'TrafficControlEngine', 'UPDATE_ROADS', `Recalculating road states for ${state.crises.filter(c=>c.status==='active').length} active crises`);
     const newTrafficActions = generateTrafficActions(state.crises, traffic);
@@ -200,29 +208,6 @@ export async function runCycle(): Promise<OrchestratorState> {
     logSuccess('TRAFFIC_CONTROL', 'TrafficControlEngine', 'UPDATE_ROADS',
       `${newTrafficActions.filter(a=>a.action==='block').length} roads blocked, ${newTrafficActions.filter(a=>a.action==='reroute').length} rerouted`);
 
-    // ── Step 7: Notifications ────────────────────────────────
-    const newNotifications: Notification[] = [];
-    for (const crisis of newCrises.filter(c => c.severity === 'HIGH' || c.severity === 'CRITICAL')) {
-      try {
-        const messages = await generateNotificationMessages(crisis);
-        for (const msg of messages) {
-          newNotifications.push({
-            id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            crisis_id: crisis.id,
-            channel: msg.channel as Notification['channel'],
-            severity: crisis.severity,
-            title: msg.title,
-            message: msg.message,
-            location: crisis.location,
-            timestamp: new Date().toISOString(),
-            sent: true,
-          });
-        }
-      } catch {
-        // Fallback notification
-        newNotifications.push(buildFallbackNotification(crisis));
-      }
-    }
     state.notifications = [...newNotifications, ...state.notifications].slice(0, 50);
 
     // ── Finalize ─────────────────────────────────────────────
@@ -244,22 +229,29 @@ export async function runCycle(): Promise<OrchestratorState> {
       const cycleStatus = state.systemStatus;
       const cycleStart2 = new Date(Date.now() - cycleDuration).toISOString();
       const cycleEnd2 = new Date().toISOString();
-      Promise.all([
-        persistCrises(state.crises, cycleNum),
-        persistAllocations(newAllocations, cycleNum),
-        persistNotifications(newNotifications),
-        persistLogs(getLogs({ limit: 200 })),
-        persistCycle({
-          cycleNumber: cycleNum,
-          startedAt: cycleStart2,
-          completedAt: cycleEnd2,
-          durationMs: cycleDuration,
-          status: cycleStatus,
-          activeCrises: activeCrises.length,
-          totalSignals: state.signals.length,
-          totalAlerts: newNotifications.length,
-        }),
-      ]).catch(e => console.warn('[Supabase] Async persist failed:', e));
+      (async () => {
+        try {
+          // Await crisis persistence first to satisfy foreign key (references ciro_crises(id))
+          await persistCrises(state.crises, cycleNum);
+          await Promise.all([
+            persistAllocations(newAllocations, cycleNum),
+            persistNotifications(newNotifications),
+            persistLogs(getLogs({ limit: 200 })),
+            persistCycle({
+              cycleNumber: cycleNum,
+              startedAt: cycleStart2,
+              completedAt: cycleEnd2,
+              durationMs: cycleDuration,
+              status: cycleStatus,
+              activeCrises: activeCrises.length,
+              totalSignals: state.signals.length,
+              totalAlerts: newNotifications.length,
+            }),
+          ]);
+        } catch (e) {
+          console.warn('[Supabase] Async persist failed:', e);
+        }
+      })();
     }
 
   } catch (err) {

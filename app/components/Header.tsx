@@ -1,5 +1,6 @@
 'use client';
 
+import { Activity, Wifi, RotateCw, Bell, Radio } from 'lucide-react';
 import type { OrchestratorState } from '@/lib/types';
 
 interface HeaderProps {
@@ -13,108 +14,126 @@ interface HeaderProps {
   onToggleAuto: () => void;
   criticalCount: number;
   highCount: number;
+  activeTab: 'map' | 'timeline' | 'trace';
+  onTabChange: (tab: 'map' | 'timeline' | 'trace') => void;
 }
 
-const statusConfig = {
-  idle: { label: 'STANDBY', color: 'text-green-400', bg: 'bg-green-400', border: 'border-green-500/30' },
-  processing: { label: 'PROCESSING', color: 'text-cyan-400', bg: 'bg-cyan-400', border: 'border-cyan-500/30' },
-  alert: { label: 'ALERT', color: 'text-amber-400', bg: 'bg-amber-400', border: 'border-amber-500/30' },
-  critical: { label: 'CRITICAL', color: 'text-red-400', bg: 'bg-red-400', border: 'border-red-500/30' },
-};
-
 export default function Header({
-  systemStatus, cycle, lastUpdated, loading, autoRun, countdown,
-  onRunCycle, onToggleAuto, criticalCount, highCount
+  systemStatus,
+  cycle,
+  loading,
+  autoRun,
+  countdown,
+  onRunCycle,
+  onToggleAuto,
+  criticalCount,
+  highCount,
+  activeTab,
+  onTabChange,
 }: HeaderProps) {
-  const cfg = statusConfig[systemStatus] || statusConfig.idle;
-
   return (
-    <header className="header-gradient px-4 py-3 flex items-center gap-4 flex-shrink-0">
-      {/* Logo & Name */}
-      <div className="flex items-center gap-3">
-        <div className="relative">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-700 flex items-center justify-center text-lg shadow-lg shadow-blue-900/50">
-            🛡️
+    <header className="fixed top-0 left-0 right-0 h-16 z-50 bg-[#10131a] backdrop-blur-md border-b border-zinc-800 flex justify-between items-center px-6">
+      
+      {/* Brand Title */}
+      <div className="flex items-center gap-4">
+        <span className="text-sm font-extrabold text-sky-300 tracking-wider">
+          CIRO COMMAND CENTER
+        </span>
+        <div className="h-4 w-px bg-zinc-800"></div>
+        
+        {/* Navigation Tabs */}
+        <nav className="flex gap-4">
+          <button
+            onClick={() => onTabChange('map')}
+            className={`cursor-pointer pb-1 text-[11px] font-mono font-semibold transition-all duration-200 ${
+              activeTab === 'map'
+                ? 'text-sky-300 border-b-2 border-sky-400'
+                : 'text-zinc-400 hover:text-sky-300 border-b-2 border-transparent'
+            }`}
+          >
+            MAP
+          </button>
+          <button
+            onClick={() => onTabChange('timeline')}
+            className={`cursor-pointer pb-1 text-[11px] font-mono font-semibold transition-all duration-200 ${
+              activeTab === 'timeline'
+                ? 'text-sky-300 border-b-2 border-sky-400'
+                : 'text-zinc-400 hover:text-sky-300 border-b-2 border-transparent'
+            }`}
+          >
+            LOGS
+          </button>
+          <button
+            onClick={() => onTabChange('trace')}
+            className={`cursor-pointer pb-1 text-[11px] font-mono font-semibold transition-all duration-200 ${
+              activeTab === 'trace'
+                ? 'text-sky-300 border-b-2 border-sky-400'
+                : 'text-zinc-400 hover:text-sky-300 border-b-2 border-transparent'
+            }`}
+          >
+            TRACES
+          </button>
+        </nav>
+      </div>
+
+      {/* Connection & Telemetry Indicators */}
+      <div className="flex items-center gap-4">
+        
+        {/* Cycle & Uplink Status */}
+        <div className="flex items-center gap-3 font-mono text-[10px] bg-zinc-950 px-3 py-1.5 rounded border border-zinc-800">
+          <span className="text-zinc-400 font-bold">Cycle #{cycle}</span>
+          <span className="text-zinc-700 font-bold">•</span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-emerald-400 font-bold">API Uplink Active</span>
           </div>
-          {(systemStatus === 'alert' || systemStatus === 'critical') && (
-            <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${cfg.bg} ${systemStatus === 'critical' ? 'animate-pulse-red' : 'animate-pulse-amber'}`} />
-          )}
         </div>
-        <div>
-          <div className="text-sm font-bold text-white tracking-wider">CIRO</div>
-          <div className="text-xs text-gray-500 leading-tight">Crisis Intelligence & Response Orchestrator</div>
-        </div>
-      </div>
 
-      {/* Divider */}
-      <div className="h-8 w-px bg-white/10" />
+        {/* Sync Controls */}
+        <div className="flex items-center gap-2">
+          
+          {/* Stop/Start Auto Runner */}
+          <button
+            onClick={onToggleAuto}
+            className={`px-3 py-1.5 rounded font-mono text-[9px] font-bold border transition-colors select-none ${
+              autoRun
+                ? 'bg-zinc-900/60 border-zinc-800 text-zinc-300 hover:bg-zinc-800/80'
+                : 'bg-zinc-100 border-zinc-200 text-zinc-950 hover:bg-zinc-200'
+            }`}
+          >
+            {autoRun ? `STOP AUTO (${countdown}S)` : 'START AUTO'}
+          </button>
 
-      {/* System Status */}
-      <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md border ${cfg.border} bg-white/3`}>
-        <span className={`w-2 h-2 rounded-full ${cfg.bg} ${loading ? 'animate-pulse' : ''}`} />
-        <span className={`text-xs font-bold tracking-widest ${cfg.color}`}>{loading ? 'PROCESSING' : cfg.label}</span>
-      </div>
+          {/* Manual Recalculation Sweep */}
+          <button
+            onClick={onRunCycle}
+            disabled={loading}
+            className="w-8 h-8 bg-zinc-900 border border-zinc-800 rounded flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors disabled:opacity-40"
+            title="Manual Grid Sync"
+          >
+            <RotateCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-sky-400' : ''}`} />
+          </button>
 
-      {/* Cycle & Time */}
-      <div className="flex items-center gap-4 text-xs text-gray-500">
-        <div>
-          Cycle <span className="text-white font-mono font-bold">#{cycle}</span>
-        </div>
-        {lastUpdated && (
-          <div>
-            Updated <span className="text-gray-400">{new Date(lastUpdated).toLocaleTimeString()}</span>
+          {/* Alert Notification Bell Indicator */}
+          <div className="relative w-8 h-8 bg-zinc-900 border border-zinc-800 rounded flex items-center justify-center text-zinc-400 cursor-pointer hover:bg-zinc-800 transition-colors">
+            <Bell className="w-3.5 h-3.5" />
+            {(criticalCount > 0 || highCount > 0) && (
+              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />
+            )}
           </div>
-        )}
-      </div>
-
-      {/* Alert counts */}
-      {criticalCount > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-900/30 border border-red-500/30">
-          <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-          <span className="text-xs font-bold text-red-300">{criticalCount} CRITICAL</span>
         </div>
-      )}
-      {highCount > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-orange-900/30 border border-orange-500/30">
-          <span className="w-2 h-2 rounded-full bg-orange-400" />
-          <span className="text-xs font-bold text-orange-300">{highCount} HIGH</span>
+
+        {/* Profile Avatar */}
+        <div className="w-8 h-8 rounded-full border border-sky-400/25 overflow-hidden flex-shrink-0 bg-zinc-900">
+          <img
+            alt="System Administrator Avatar"
+            className="w-full h-full object-cover"
+            src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQNOvdI7JgmzUpDbRzB5l-lDd4weHaQ5yGXVRdjr1M5i6hXhqGtlYTmwK6hWo1kUElCDKuycCQNn9K75pDjSH7O8nMYCL7L2b8mY5xK35FI6zSFhY-fXgK43fDOEAk_nvqZVtyf2dw2KQV7lxxZWiWHW4fMSVdeJyi5nUDIlBPZHmcCMvOuHHFVTgXmzQJ5V0c_Nar3XI6_DBm-iLV0ZGNYQ0wXET2_X863s5UIigyLuzU6g4Z0tLHPL3KYzmJCEsC6hYlszpAZeLN"
+          />
         </div>
-      )}
 
-      {/* Integration badges */}
-      <div className="flex items-center gap-2 ml-auto">
-        <span className="px-2 py-0.5 text-xs rounded bg-blue-900/40 border border-blue-700/30 text-blue-400">Google Maps</span>
-        <span className="px-2 py-0.5 text-xs rounded bg-purple-900/40 border border-purple-700/30 text-purple-400">Gemini Flash</span>
-        <span className="px-2 py-0.5 text-xs rounded bg-cyan-900/40 border border-cyan-700/30 text-cyan-400">Social API</span>
-        <span className="px-2 py-0.5 text-xs rounded bg-green-900/40 border border-green-700/30 text-green-400">Weather</span>
-        <a
-          href="/logs"
-          className="px-2 py-0.5 text-xs rounded bg-orange-900/40 border border-orange-700/30 text-orange-400 hover:bg-orange-700/30 transition-all"
-        >
-          📋 Logs
-        </a>
       </div>
 
-      {/* Controls */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={onRunCycle}
-          disabled={loading}
-          className="px-3 py-1.5 rounded-md bg-cyan-700/30 border border-cyan-600/30 text-cyan-300 text-xs font-medium hover:bg-cyan-700/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {loading ? '⟳ Running...' : '▶ Run Cycle'}
-        </button>
-        <button
-          onClick={onToggleAuto}
-          className={`px-3 py-1.5 rounded-md border text-xs font-medium transition-all ${
-            autoRun
-              ? 'bg-green-700/30 border-green-600/30 text-green-300 hover:bg-red-700/20 hover:text-red-300 hover:border-red-600/30'
-              : 'bg-white/5 border-white/10 text-gray-400 hover:bg-green-700/20 hover:text-green-300 hover:border-green-600/30'
-          }`}
-        >
-          {autoRun ? `⏹ Stop (${countdown}s)` : '⚡ Auto'}
-        </button>
-      </div>
     </header>
   );
 }

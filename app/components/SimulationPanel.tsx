@@ -9,78 +9,88 @@ interface SimulationPanelProps {
 
 export default function SimulationPanel({ simulations, crises }: SimulationPanelProps) {
   return (
-    <div className="h-full overflow-y-auto p-4 space-y-4">
-      <div>
-        <h2 className="text-sm font-bold text-white">Simulation Engine</h2>
-        <p className="text-xs text-gray-500">AI-simulated outcomes before execution — {simulations.length} scenarios</p>
+    <div className="h-full overflow-y-auto p-4 space-y-4 bg-[#09090b]">
+      
+      {/* Simulation Engine Header */}
+      <div className="border-b border-zinc-800 pb-3">
+        <h2 className="text-xs font-bold tracking-wider text-zinc-200 uppercase">Response Prediction Engine</h2>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-wide mt-1">{simulations.length} Computed Scenarios Active</p>
       </div>
 
       {simulations.length === 0 && (
-        <div className="text-center py-16 text-xs text-gray-600">
-          <div className="text-5xl mb-3">🎯</div>
-          <div className="font-medium text-gray-500">No simulations run yet</div>
-          <div className="mt-1">Simulations run automatically when HIGH/CRITICAL crises are detected</div>
+        <div className="text-center py-16 border border-dashed border-zinc-800 rounded-lg">
+          <div className="text-4xl mb-3">🎯</div>
+          <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Awaiting Incidents</div>
+          <div className="text-[9px] text-zinc-500 mt-1">Simulations run automatically when high or critical incidents are logged into the coordinator.</div>
         </div>
       )}
 
       {simulations.map((sim, idx) => {
         const crisis = crises.find(c => c.id === sim.crisis_id);
+        const targetId = sim.crisis_id.slice(0, 4).toUpperCase();
         return (
-          <div key={sim.crisis_id + idx} className="glass-card p-5 space-y-4 animate-fade-in">
-            {/* Header */}
-            <div className="flex items-start justify-between">
+          <div key={sim.crisis_id + idx} className="hud-panel p-4.5 space-y-4 bg-zinc-900/40 border-zinc-800">
+            
+            {/* Header info */}
+            <div className="flex items-start justify-between border-b border-zinc-800 pb-3">
               <div>
-                <div className="text-xs text-gray-500 uppercase tracking-wider">Simulation #{idx + 1}</div>
-                <div className="text-sm font-bold text-white mt-0.5">
-                  {crisis?.type?.replace('_', ' ').toUpperCase() || 'Unknown Event'} — {crisis?.location || 'Unknown'}
+                <div className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">Scenario Calculation #{idx + 1}</div>
+                <div className="text-xs font-semibold text-zinc-200 mt-1">
+                  ID: {targetId} · {crisis?.type?.replace('_', ' ').toUpperCase() || 'Incident Analysis'}
                 </div>
-                <div className="text-xs text-gray-500 mt-0.5">{sim.scenario}</div>
+                <div className="text-[9.5px] text-zinc-400 mt-1">
+                  📍 {crisis?.location || 'Sector Unknown'} · Scenario: {sim.scenario}
+                </div>
               </div>
               <div className="text-right">
-                <div className="text-xl font-bold text-blue-400">{(sim.confidence * 100).toFixed(0)}%</div>
-                <div className="text-xs text-gray-600">confidence</div>
+                <div className="text-lg font-bold text-sky-400">{(sim.confidence * 100).toFixed(0)}%</div>
+                <div className="text-[8px] text-zinc-500 uppercase tracking-wider font-semibold">Match score</div>
               </div>
             </div>
 
-            {/* Stats row */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-white/5 rounded-lg p-2.5 text-center">
-                <div className="text-lg font-bold text-green-400">
-                  {sim.estimated_lives_saved !== undefined ? sim.estimated_lives_saved : 'N/A'}
+            {/* Metrics Matrix */}
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="bg-zinc-950 border border-zinc-800/60 rounded p-2 text-center font-sans">
+                <div className="text-sm font-bold text-emerald-400">
+                  {sim.estimated_lives_saved !== undefined ? `+${sim.estimated_lives_saved}` : 'N/A'}
                 </div>
-                <div className="text-xs text-gray-500">Lives Protected</div>
+                <div className="text-[8px] text-zinc-500 uppercase tracking-wider font-semibold mt-1">Impact Mitigation</div>
               </div>
-              <div className="bg-white/5 rounded-lg p-2.5 text-center">
-                <div className="text-lg font-bold text-orange-400">{sim.estimated_response_time} min</div>
-                <div className="text-xs text-gray-500">Response Time</div>
+              <div className="bg-zinc-950 border border-zinc-800/60 rounded p-2 text-center font-sans">
+                <div className="text-sm font-bold text-amber-400">{sim.estimated_response_time} Min</div>
+                <div className="text-[8px] text-zinc-500 uppercase tracking-wider font-semibold mt-1">Response Est.</div>
               </div>
-              <div className="bg-white/5 rounded-lg p-2.5 text-center">
-                <div className="text-lg font-bold text-purple-400">{sim.alternatives.length}</div>
-                <div className="text-xs text-gray-500">Alternatives</div>
+              <div className="bg-zinc-950 border border-zinc-800/60 rounded p-2 text-center font-sans">
+                <div className="text-sm font-bold text-sky-400">{sim.alternatives.length}</div>
+                <div className="text-[8px] text-zinc-500 uppercase tracking-wider font-semibold mt-1">Alt Options</div>
               </div>
             </div>
 
-            {/* Best Action Plan */}
-            <div className="bg-green-900/20 border border-green-500/20 rounded-lg p-3">
-              <div className="text-xs font-bold text-green-400 mb-1.5">✅ RECOMMENDED ACTION PLAN</div>
-              <p className="text-xs text-gray-300 leading-relaxed">{sim.best_action_plan}</p>
+            {/* Recommended Action Strategy */}
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-3 text-[10.5px] text-zinc-300">
+              <div className="text-[9px] font-bold text-emerald-400 mb-1.5 uppercase tracking-wider">
+                [Recommended Strategy]
+              </div>
+              <p className="leading-relaxed font-sans">{sim.best_action_plan}</p>
             </div>
 
-            {/* Reasoning */}
-            <div className="bg-blue-900/20 border border-blue-500/15 rounded-lg p-3">
-              <div className="text-xs font-bold text-blue-400 mb-1.5">🧠 AI REASONING</div>
-              <p className="text-xs text-gray-400 leading-relaxed">{sim.reasoning}</p>
+            {/* AI Reasoning Log */}
+            <div className="bg-zinc-950 border border-zinc-800 rounded p-3 text-[10.5px] text-zinc-300">
+              <div className="text-[9px] font-bold text-sky-400 mb-1.5 uppercase tracking-wider">
+                [AI Strategic Summary]
+              </div>
+              <p className="leading-relaxed font-sans">{sim.reasoning}</p>
             </div>
 
             {/* Risk Tradeoffs */}
             {sim.risk_tradeoffs.length > 0 && (
-              <div>
-                <div className="text-xs font-bold text-amber-400 mb-2">⚖️ RISK TRADEOFFS</div>
-                <div className="space-y-1">
+              <div className="text-[10px]">
+                <div className="text-[9px] font-bold text-amber-400 mb-2 uppercase tracking-wider">⚖️ Risk Tradeoffs Matrix</div>
+                <div className="space-y-1 bg-zinc-950 p-2.5 rounded border border-zinc-800/40">
                   {sim.risk_tradeoffs.map((t, i) => (
-                    <div key={i} className="flex gap-2 text-xs">
-                      <span className="text-amber-600 flex-shrink-0">▸</span>
-                      <span className="text-gray-400">{t}</span>
+                    <div key={i} className="flex gap-2 text-zinc-400 text-[9.5px]">
+                      <span className="text-amber-400 flex-shrink-0">▸</span>
+                      <span className="leading-relaxed">{t}</span>
                     </div>
                   ))}
                 </div>
@@ -89,13 +99,13 @@ export default function SimulationPanel({ simulations, crises }: SimulationPanel
 
             {/* Secondary Impacts */}
             {sim.secondary_impacts.length > 0 && (
-              <div>
-                <div className="text-xs font-bold text-orange-400 mb-2">🔗 SECONDARY IMPACTS</div>
-                <div className="space-y-1">
+              <div className="text-[10px]">
+                <div className="text-[9px] font-bold text-orange-400 mb-2 uppercase tracking-wider">🔗 Secondary Environmental Impacts</div>
+                <div className="space-y-1 bg-zinc-950 p-2.5 rounded border border-zinc-800/40">
                   {sim.secondary_impacts.map((impact, i) => (
-                    <div key={i} className="flex gap-2 text-xs">
-                      <span className="text-orange-600 flex-shrink-0">→</span>
-                      <span className="text-gray-400">{impact}</span>
+                    <div key={i} className="flex gap-2 text-zinc-400 text-[9.5px]">
+                      <span className="text-orange-400 flex-shrink-0">→</span>
+                      <span className="leading-relaxed">{impact}</span>
                     </div>
                   ))}
                 </div>
@@ -104,23 +114,25 @@ export default function SimulationPanel({ simulations, crises }: SimulationPanel
 
             {/* Alternative Plans */}
             {sim.alternatives.length > 0 && (
-              <div>
-                <div className="text-xs font-bold text-gray-400 mb-2">🔄 ALTERNATIVE SCENARIOS</div>
+              <div className="text-[10px]">
+                <div className="text-[9px] font-bold text-zinc-500 mb-2.5 uppercase tracking-wider">🔄 Alternative Operational Plans</div>
                 <div className="space-y-2">
                   {sim.alternatives.map((alt, i) => (
-                    <div key={i} className="border border-white/5 rounded-lg p-3 bg-white/2">
-                      <div className="text-xs font-medium text-gray-300 mb-1.5">{alt.plan}</div>
-                      <div className="grid grid-cols-2 gap-2">
+                    <div key={i} className="border border-zinc-800 rounded p-3 bg-zinc-950">
+                      <div className="text-[9.5px] font-bold text-zinc-200 mb-2 uppercase">
+                        Option #{i + 1}: {alt.plan}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-[9.5px]">
                         <div>
-                          <div className="text-xs text-green-600 mb-1">PROS</div>
+                          <div className="text-[8.5px] font-bold text-emerald-400 mb-1 uppercase">Advantages</div>
                           {alt.pros.map((p, j) => (
-                            <div key={j} className="text-xs text-gray-500 flex gap-1"><span className="text-green-700">+</span>{p}</div>
+                            <div key={j} className="text-zinc-400 flex gap-1 mt-0.5"><span className="text-emerald-400">+</span> {p}</div>
                           ))}
                         </div>
                         <div>
-                          <div className="text-xs text-red-600 mb-1">CONS</div>
+                          <div className="text-[8.5px] font-bold text-rose-400 mb-1 uppercase">Disadvantages</div>
                           {alt.cons.map((c, j) => (
-                            <div key={j} className="text-xs text-gray-500 flex gap-1"><span className="text-red-700">-</span>{c}</div>
+                            <div key={j} className="text-zinc-400 flex gap-1 mt-0.5"><span className="text-rose-400">-</span> {c}</div>
                           ))}
                         </div>
                       </div>
@@ -130,9 +142,9 @@ export default function SimulationPanel({ simulations, crises }: SimulationPanel
               </div>
             )}
 
-            {/* Override note */}
-            <div className="text-xs text-gray-700 border-t border-white/5 pt-3">
-              ⚠ Human override available — All AI decisions are advisory. Final authority rests with incident commanders.
+            {/* Operational notice */}
+            <div className="text-[8.5px] text-zinc-500 border-t border-zinc-800 pt-3 uppercase">
+              Notice: Predictive models are advisory. Deployments are subject to agency dispatcher review.
             </div>
           </div>
         );

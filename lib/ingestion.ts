@@ -158,8 +158,57 @@ export async function fetchTrafficData(): Promise<TrafficData[]> {
   try {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
     if (!apiKey || apiKey === 'your_google_maps_api_key_here') throw new Error('No Maps API key configured');
-    // In production: Routes API / Traffic Layer
-    throw new Error('Routes API not yet wired — using simulated traffic');
+    
+    // Query distance matrix for key Karachi routes from Saddar (center point)
+    const destinations = ['Clifton', 'DHA', 'Gulshan-e-Iqbal', 'North Nazimabad', 'Korangi'];
+    const destCoords = destinations.map(d => `${KARACHI_LOCATIONS[d].lat},${KARACHI_LOCATIONS[d].lng}`).join('|');
+    const origin = '24.8607,67.0104'; // Saddar lat/lng
+    
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destCoords}&departure_time=now&traffic_model=best_guess&key=${apiKey}`;
+    
+    const res = await axios.get(url, { timeout: 8000 });
+    const data = res.data;
+    
+    if (data.status === 'OK' && data.rows?.[0]?.elements) {
+      const trafficDataList: TrafficData[] = [];
+      const elements = data.rows[0].elements;
+      
+      for (let i = 0; i < destinations.length; i++) {
+        const destName = destinations[i];
+        const el = elements[i];
+        
+        if (el.status === 'OK') {
+          const normalDuration = el.duration?.value ?? 600; // seconds
+          const trafficDuration = el.duration_in_traffic?.value ?? normalDuration; // seconds
+          
+          // Calculate relative congestion level (extra time ratio)
+          const diff = Math.max(0, trafficDuration - normalDuration);
+          const congestionLevel = Math.min(1.0, diff / Math.max(1, normalDuration));
+          
+          let roadState: 'OPEN' | 'CONGESTED' | 'BLOCKED' = 'OPEN';
+          if (congestionLevel > 0.4) {
+            roadState = 'BLOCKED';
+          } else if (congestionLevel > 0.15) {
+            roadState = 'CONGESTED';
+          }
+          
+          trafficDataList.push({
+            area: destName,
+            congestionLevel,
+            incidentsReported: congestionLevel > 0.4 ? 1 : 0,
+            roadState,
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
+      
+      if (trafficDataList.length > 0) {
+        logSuccess('API_CALL', 'TrafficIngestionAgent', 'FETCH_TRAFFIC', `Successfully polled Google Maps distance matrix for ${trafficDataList.length} routes (${Date.now() - start}ms)`);
+        return trafficDataList;
+      }
+    }
+    
+    throw new Error(data.error_message || `Distance Matrix API returned: ${data.status}`);
   } catch (err: unknown) {
     const ms = Date.now() - start;
     logWarn('API_CALL', 'TrafficIngestionAgent', 'FETCH_TRAFFIC', `Maps traffic unavailable (${String(err)}) — generating simulated grid`, { durationMs: ms, errorMessage: String(err) });

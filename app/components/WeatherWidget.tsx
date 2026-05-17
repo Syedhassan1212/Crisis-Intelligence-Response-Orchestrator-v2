@@ -1,5 +1,6 @@
 'use client';
 
+import { Sun, CloudRain, Wind, Thermometer, Droplets } from 'lucide-react';
 import type { WeatherData } from '@/lib/types';
 
 interface WeatherWidgetProps {
@@ -9,9 +10,13 @@ interface WeatherWidgetProps {
 export default function WeatherWidget({ weather }: WeatherWidgetProps) {
   if (!weather) {
     return (
-      <div className="p-4 border-b border-white/5">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Weather</div>
-        <div className="text-xs text-gray-700 italic">Loading weather data...</div>
+      <div className="p-4 border-b border-zinc-800 bg-[#09090b]">
+        <span className="font-mono text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2 select-none">
+          CLIMATE TELEMETRY
+        </span>
+        <div className="text-[9.5px] text-zinc-500 italic uppercase">
+          Establishing connection to environmental telemetry nodes...
+        </div>
       </div>
     );
   }
@@ -20,77 +25,89 @@ export default function WeatherWidget({ weather }: WeatherWidgetProps) {
   const isRainy = weather.rainfall > 15;
   const isWindy = weather.windSpeed > 30;
 
-  const getWeatherIcon = () => {
-    if (isRainy) return '🌧️';
-    if (isHot) return '☀️';
-    if (isWindy) return '💨';
-    if (weather.condition?.toLowerCase().includes('cloud')) return '⛅';
-    return '🌤️';
-  };
+  const riskLabel = isHot && isRainy 
+    ? 'CRITICAL RISK' 
+    : isHot || isRainy 
+    ? 'ELEVATED RISK' 
+    : isWindy 
+    ? 'MODERATE RISK' 
+    : 'STABLE CONDITION';
 
-  const getRiskLevel = () => {
-    if (isHot && isRainy) return { label: 'SEVERE', color: 'text-red-400' };
-    if (isHot || isRainy) return { label: 'ELEVATED', color: 'text-amber-400' };
-    if (isWindy) return { label: 'MODERATE', color: 'text-yellow-400' };
-    return { label: 'NORMAL', color: 'text-green-400' };
-  };
-
-  const risk = getRiskLevel();
+  const riskBadgeClass = isHot && isRainy
+    ? 'bg-red-500/10 text-red-400 border-red-500/25'
+    : isHot || isRainy
+    ? 'bg-amber-500/10 text-amber-400 border-amber-500/25'
+    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25';
 
   return (
-    <div className="p-4 border-b border-white/5">
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Karachi Weather</div>
+    <div className="p-4 border-b border-zinc-800 bg-[#09090b] font-sans">
+      <div className="flex justify-between items-center mb-4 select-none">
+        <span className="font-mono text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+          CLIMATE TELEMETRY
+        </span>
+        <Sun className="w-4 h-4 text-sky-400" />
+      </div>
 
-      {/* Main temp display */}
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-4xl">{getWeatherIcon()}</span>
-        <div>
-          <div className="text-3xl font-bold text-white">{weather.temperature.toFixed(1)}°C</div>
-          <div className="text-xs text-gray-400">{weather.condition}</div>
+      {/* Primary Climate Telemetry display */}
+      <div className="flex items-end gap-4 mb-4 select-none">
+        <span className="text-[42px] font-bold leading-none text-zinc-100 tracking-tighter">
+          {weather.temperature.toFixed(0)}°C
+        </span>
+        <div className="flex flex-col mb-1 leading-tight">
+          <span className="text-[11px] font-bold text-zinc-200">{weather.condition}</span>
+          <span className="font-mono text-[9px] text-zinc-500 mt-0.5">HUMIDITY: {weather.humidity.toFixed(0)}%</span>
         </div>
-        <div className="ml-auto text-right">
-          <div className={`text-xs font-bold ${risk.color}`}>{risk.label}</div>
-          <div className="text-xs text-gray-600">weather risk</div>
+
+        <div className="ml-auto text-right mb-1">
+          <span className={`px-2 py-0.5 rounded text-[7.5px] font-bold font-mono border tracking-wider ${riskBadgeClass}`}>
+            {riskLabel}
+          </span>
         </div>
       </div>
 
-      {/* Weather stats */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* Hourly climate forecasting indicators */}
+      <div className="grid grid-cols-4 gap-1.5 h-12 select-none mb-3">
         {[
-          { label: 'Humidity', value: `${weather.humidity.toFixed(0)}%`, icon: '💧', warn: weather.humidity > 85 },
-          { label: 'Wind', value: `${weather.windSpeed.toFixed(0)} km/h`, icon: '💨', warn: isWindy },
-          { label: 'Rainfall', value: `${weather.rainfall.toFixed(1)} mm`, icon: '🌧️', warn: isRainy },
-          { label: 'Heat Index', value: weather.heatIndex ? `${weather.heatIndex.toFixed(0)}°C` : 'N/A', icon: '🌡️', warn: isHot },
-        ].map(stat => (
-          <div key={stat.label} className={`p-2 rounded-lg ${stat.warn ? 'bg-amber-900/20 border border-amber-700/20' : 'bg-white/3'}`}>
-            <div className="flex items-center gap-1">
-              <span className="text-xs">{stat.icon}</span>
-              <span className="text-xs text-gray-600">{stat.label}</span>
-            </div>
-            <div className={`text-sm font-bold ${stat.warn ? 'text-amber-400' : 'text-white'}`}>{stat.value}</div>
+          { time: '14:00', temp: `${(weather.temperature).toFixed(0)}°`, active: false },
+          { time: '15:00', temp: `${(weather.temperature - 1).toFixed(0)}°`, active: false },
+          { time: '16:00', temp: `${(weather.temperature - 2).toFixed(0)}°`, active: true },
+          { time: '17:00', temp: `${(weather.temperature - 3).toFixed(0)}°`, active: false },
+        ].map((slot, i) => (
+          <div 
+            key={i} 
+            className={`rounded flex flex-col items-center justify-center border font-mono text-[10px] ${
+              slot.active 
+                ? 'bg-sky-500/10 border-sky-400/30 text-sky-400' 
+                : 'bg-zinc-950 border-zinc-850 text-zinc-400'
+            }`}
+          >
+            <span className="text-[7.5px] text-zinc-500 uppercase font-semibold leading-none">{slot.time}</span>
+            <span className="font-bold mt-1">{slot.temp}</span>
           </div>
         ))}
       </div>
 
-      {/* Crisis triggers */}
-      {(isHot || isRainy || isWindy) && (
-        <div className="mt-3 p-2 rounded-lg bg-red-900/20 border border-red-700/20">
-          <div className="text-xs font-bold text-red-400 mb-1">⚠️ WEATHER CRISIS TRIGGERS</div>
-          <div className="space-y-0.5">
-            {isHot && <div className="text-xs text-orange-400">● Heatwave conditions — heat emergency risk</div>}
-            {isRainy && <div className="text-xs text-blue-400">● Heavy rainfall — flooding risk elevated</div>}
-            {isWindy && <div className="text-xs text-cyan-400">● High winds — fire spread risk elevated</div>}
+      {/* Wind and Visibility parameters */}
+      <div className="grid grid-cols-2 gap-2 text-[9.5px]">
+        <div className="bg-zinc-950 border border-zinc-850 p-2 rounded flex items-center gap-2">
+          <Wind className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+          <div>
+            <span className="text-[7px] text-zinc-500 uppercase block font-bold leading-none">Wind Velocity</span>
+            <span className="text-[10px] font-bold text-zinc-200 mt-1 block">{weather.windSpeed.toFixed(0)} km/h</span>
           </div>
         </div>
-      )}
+        <div className="bg-zinc-950 border border-zinc-850 p-2 rounded flex items-center gap-2">
+          <Droplets className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+          <div>
+            <span className="text-[7px] text-zinc-500 uppercase block font-bold leading-none">Precipitation</span>
+            <span className="text-[10px] font-bold text-zinc-200 mt-1 block">{weather.rainfall.toFixed(1)} mm</span>
+          </div>
+        </div>
+      </div>
 
-      {/* Forecast */}
-      {weather.forecast && (
-        <div className="mt-2 text-xs text-gray-600 italic">{weather.forecast}</div>
-      )}
-
-      <div className="mt-2 text-xs text-gray-700">
-        Updated {new Date(weather.fetchedAt).toLocaleTimeString()}
+      <div className="mt-3.5 text-[7px] text-zinc-600 font-mono uppercase select-none flex justify-between">
+        <span>Sync: Stable</span>
+        <span>Checked: {new Date(weather.fetchedAt).toLocaleTimeString()}</span>
       </div>
     </div>
   );

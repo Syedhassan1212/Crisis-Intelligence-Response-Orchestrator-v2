@@ -1,12 +1,13 @@
 // ============================================================
-// CIRO — Gemini 3 Flash AI Engine
-// Multi-agent crisis intelligence powered by Google AI
+// CIRO — Dynamic AI Engine (Gemini & OpenRouter)
+// Multi-agent crisis intelligence powered by Google AI & DeepSeek
 // ============================================================
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import axios from 'axios';
 import type {
   FusedSignal, CrisisEvent, CrisisType, SeverityLevel,
-  SimulationResult, AIDecisionLog, ResourceUnit, AllocationPlan
+  SimulationResult, AIDecisionLog, ResourceUnit, AllocationPlan, Notification
 } from './types';
 import { logInfo, logSuccess, logWarn, logError } from './logger';
 
@@ -21,90 +22,213 @@ function getGenAI(): GoogleGenerativeAI {
   return genAI;
 }
 
-async function callGemini(agent: string, action: string, prompt: string, systemInstruction?: string): Promise<string> {
-  const start = Date.now();
-  const promptPreview = prompt.trim().slice(0, 120).replace(/\n/g, ' ');
-  logInfo('API_CALL', agent, action, `→ Gemini Flash: "${promptPreview}..."`, {
-    requestPayload: { model: 'gemma-4-26b-a4b-it', fullPrompt: prompt },
-  });
-  try {
-    const ai = getGenAI();
-    const model = ai.getGenerativeModel({
-      model: 'gemini-3.0-flash',
-      systemInstruction: systemInstruction || 'You are CIRO, an AI crisis analyst. You MUST NOT explain your reasoning. You MUST NOT use chain of thought. Output ONLY the final valid JSON object. Do not output anything before the JSON.',
-      generationConfig: {
-        responseMimeType: 'application/json',
-      }
-    });
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
-    
-    // Robust JSON extraction
-    let clean = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-    const firstBrace = clean.indexOf('{');
-    const firstBracket = clean.indexOf('[');
-    let startIndex = -1;
-    let isArray = false;
-    
-    if (firstBrace !== -1 && firstBracket !== -1) {
-      startIndex = Math.min(firstBrace, firstBracket);
-      isArray = startIndex === firstBracket;
-    } else if (firstBrace !== -1) {
-      startIndex = firstBrace;
-    } else if (firstBracket !== -1) {
-      startIndex = firstBracket;
-      isArray = true;
-    }
-    
-    if (startIndex !== -1) {
-      const endChar = isArray ? ']' : '}';
-      const endIndex = clean.lastIndexOf(endChar);
-      if (endIndex !== -1 && endIndex > startIndex) {
-        clean = clean.substring(startIndex, endIndex + 1);
-      }
-    }
+let requestQueue: Promise<any> = Promise.resolve();
+let lastRequestTime = 0;
+const RPM_LIMIT = 15; // Increased to 15 for Gemini 1.5 Flash
+const REQUEST_INTERVAL_MS = (60 / RPM_LIMIT) * 1000 + 200; // ~4.2 seconds per request
 
-    const ms = Date.now() - start;
-    logSuccess('API_CALL', agent, action, `← Gemini responded in ${ms}ms (${clean.length} chars)`, {
-      durationMs: ms,
-      responsePayload: { rawOutput: text, extractedJson: clean },
+async function callGemini(agent: string, action: string, prompt: string, systemInstruction?: string, retryCount = 0): Promise<string> {
+  // Chain to global queue to ensure sequential execution (1 request at a time)
+  return new Promise((resolve, reject) => {
+    requestQueue = requestQueue.then(async () => {
+      let apiStart = Date.now();
+      try {
+        const now = Date.now();
+        const timeSinceLast = now - lastRequestTime;
+        if (timeSinceLast < REQUEST_INTERVAL_MS) {
+          const waitTime = REQUEST_INTERVAL_MS - timeSinceLast;
+          logInfo('API_CALL', agent, action, `Rate limit preservation: waiting ${waitTime}ms...`);
+          await new Promise(r => setTimeout(r, waitTime));
+        }
+
+        apiStart = Date.now();
+        const promptPreview = prompt.trim().slice(0, 120).replace(/\n/g, ' ');
+
+        const openrouterKey = process.env.OPENROUTER_API_KEY;
+        const useOpenRouter = !!(openrouterKey && openrouterKey !== 'your_openrouter_key_here');
+
+        if (useOpenRouter) {
+          const openrouterModel = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-v4-flash:free';
+          logInfo('API_CALL', agent, action, `→ OpenRouter (${openrouterModel}): "${promptPreview}..."`, {
+            requestPayload: { model: openrouterModel, fullPrompt: prompt },
+          });
+
+          const response = await axios.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            {
+              model: openrouterModel,
+              messages: [
+                {
+                  role: 'system',
+                  content: systemInstruction || 'You are CIRO, an AI crisis analyst. You MUST NOT explain your reasoning. You MUST NOT use chain of thought. Output ONLY the final valid JSON object. Do not output anything before the JSON.'
+                },
+                {
+                  role: 'user',
+                  content: prompt
+                }
+              ],
+              response_format: { type: 'json_object' }
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${openrouterKey}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://ciro.emergency',
+                'X-Title': 'CIRO Crisis Command Center'
+              },
+              timeout: 45000
+            }
+          );
+
+          lastRequestTime = Date.now();
+          const text = response.data.choices?.[0]?.message?.content?.trim() || '';
+
+          // Robust JSON extraction
+          let clean = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+          const firstBrace = clean.indexOf('{');
+          const firstBracket = clean.indexOf('[');
+          let startIndex = -1;
+          let isArray = false;
+          
+          if (firstBrace !== -1 && firstBracket !== -1) {
+            startIndex = Math.min(firstBrace, firstBracket);
+            isArray = startIndex === firstBracket;
+          } else if (firstBrace !== -1) {
+            startIndex = firstBrace;
+          } else if (firstBracket !== -1) {
+            startIndex = firstBracket;
+            isArray = true;
+          }
+          
+          if (startIndex !== -1) {
+            const endChar = isArray ? ']' : '}';
+            const endIndex = clean.lastIndexOf(endChar);
+            if (endIndex !== -1 && endIndex > startIndex) {
+              clean = clean.substring(startIndex, endIndex + 1);
+            }
+          }
+
+          const ms = Date.now() - apiStart;
+          logSuccess('API_CALL', agent, action, `← OpenRouter responded in ${ms}ms (${clean.length} chars)`, {
+            durationMs: ms,
+            responsePayload: { rawOutput: text, extractedJson: clean },
+          });
+          resolve(clean);
+        } else {
+          // Standard Google Gemini implementation
+          logInfo('API_CALL', agent, action, `→ Gemini 2.5 Flash: "${promptPreview}..."`, {
+            requestPayload: { model: 'gemini-2.5-flash', fullPrompt: prompt },
+          });
+
+          const ai = getGenAI();
+          const model = ai.getGenerativeModel({
+            model: 'gemini-2.5-flash',
+            systemInstruction: systemInstruction || 'You are CIRO, an AI crisis analyst. You MUST NOT explain your reasoning. You MUST NOT use chain of thought. Output ONLY the final valid JSON object. Do not output anything before the JSON.',
+            generationConfig: {
+              responseMimeType: 'application/json',
+            }
+          });
+
+          const result = await model.generateContent(prompt);
+          lastRequestTime = Date.now();
+          const text = result.response.text().trim();
+          
+          // Robust JSON extraction
+          let clean = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+          const firstBrace = clean.indexOf('{');
+          const firstBracket = clean.indexOf('[');
+          let startIndex = -1;
+          let isArray = false;
+          
+          if (firstBrace !== -1 && firstBracket !== -1) {
+            startIndex = Math.min(firstBrace, firstBracket);
+            isArray = startIndex === firstBracket;
+          } else if (firstBrace !== -1) {
+            startIndex = firstBrace;
+          } else if (firstBracket !== -1) {
+            startIndex = firstBracket;
+            isArray = true;
+          }
+          
+          if (startIndex !== -1) {
+            const endChar = isArray ? ']' : '}';
+            const endIndex = clean.lastIndexOf(endChar);
+            if (endIndex !== -1 && endIndex > startIndex) {
+              clean = clean.substring(startIndex, endIndex + 1);
+            }
+          }
+
+          const ms = Date.now() - apiStart;
+          logSuccess('API_CALL', agent, action, `← Gemini responded in ${ms}ms (${clean.length} chars)`, {
+            durationMs: ms,
+            responsePayload: { rawOutput: text, extractedJson: clean },
+          });
+          resolve(clean);
+        }
+      } catch (err: any) {
+        const ms = Date.now() - apiStart;
+        
+        // Handle Rate Limit (429) specifically for Gemini
+        if (err.message?.includes('429') && retryCount < 3) {
+          const backoff = (retryCount + 1) * 20000; // 20s, 40s, 60s backoff
+          logWarn('API_CALL', agent, action, `Rate limited (429). Retrying in ${backoff/1000}s... (Attempt ${retryCount + 1}/3)`);
+          await new Promise(r => setTimeout(r, backoff));
+          lastRequestTime = 0; // Reset timer to allow retry
+          resolve(callGemini(agent, action, prompt, systemInstruction, retryCount + 1));
+          return;
+        }
+
+        logError('API_CALL', agent, action, `✗ AI call failed after ${ms}ms: ${err}`, {
+          durationMs: ms,
+          errorMessage: String(err),
+        });
+        reject(err);
+      }
+    }).catch(() => {
+      // Prevents the global queue chain from breaking on rejections
     });
-    return clean;
-  } catch (err: unknown) {
-    const ms = Date.now() - start;
-    logError('API_CALL', agent, action, `✗ Gemini call failed after ${ms}ms: ${err}`, {
-      durationMs: ms,
-      errorMessage: String(err),
-    });
-    throw err;
-  }
+  });
 }
 
-// ── Crisis Detection Engine ──────────────────────────────────
-export async function classifyCrisis(signal: FusedSignal): Promise<CrisisEvent> {
-  logInfo('CRISIS_DETECTION', 'CrisisDetectionAgent', 'CLASSIFY',
-    `Classifying ${signal.event_type} signal at ${signal.location} (conf: ${signal.confidence_score.toFixed(2)})`, {
+// ── CALL #1: Analysis Brain (Detection + Risk) ──────────────────
+export async function analyzeCrisisBrain(signal: FusedSignal): Promise<CrisisEvent> {
+  logInfo('CRISIS_ANALYSIS', 'CrisisAnalysisBrain', 'ANALYZE',
+    `Analyzing ${signal.event_type} signal at ${signal.location} (conf: ${signal.confidence_score.toFixed(2)})`, {
     confidence: signal.confidence_score,
     details: { event_type: signal.event_type, location: signal.location, urgency: signal.urgency_level },
   });
-  const prompt = `Analyze this crisis signal and classify it. Return a single JSON object.
+  
+  const prompt = `Analyze this emergency signal and predict its risks. Return a single JSON object.
 
-Signal:
-- Event type hint: ${signal.event_type}
+Signal Details:
+- Hint Type: ${signal.event_type}
 - Location: ${signal.location}
 - Confidence: ${signal.confidence_score}
 - Evidence: ${signal.evidence_sources.join(', ')}
 - Urgency: ${signal.urgency_level}
-- Weather context: ${signal.weather_context || 'unknown'}
-- Traffic context: ${signal.traffic_context || 'unknown'}
+- Weather: ${signal.weather_context || 'unknown'}
+- Traffic: ${signal.traffic_context || 'unknown'}
 ${signal.raw_posts?.length ? `- Social posts: ${signal.raw_posts.map(p => p.text).slice(0, 3).join(' | ')}` : ''}
 
 Return JSON with these exact fields:
-{"type":"${signal.event_type}","severity":"LOW|MEDIUM|HIGH|CRITICAL","confidence":0.0,"affected_radius_km":0,"expected_duration_hours":0,"description":"brief description","ai_reasoning":"step-by-step reasoning"}`;
+{
+  "type": "${signal.event_type}",
+  "severity": "LOW|MEDIUM|HIGH|CRITICAL",
+  "confidence": 0.0,
+  "affected_radius_km": 0,
+  "expected_duration_hours": 0,
+  "description": "brief description",
+  "spread_probability": 0.0,
+  "population_impact": 0,
+  "escalation_probability": 0.0,
+  "time_to_peak_hours": 0,
+  "ai_reasoning": "step-by-step reasoning"
+}`;
 
-  const raw = await callGemini('CrisisDetectionAgent', 'CLASSIFY', prompt);
+  const raw = await callGemini('CrisisAnalysisBrain', 'ANALYZE', prompt);
   const parsed = JSON.parse(raw);
   const id = `crisis_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  
   const crisis: CrisisEvent = {
     id,
     type: (parsed.type || signal.event_type) as CrisisType,
@@ -116,157 +240,119 @@ Return JSON with these exact fields:
     affected_radius_km: parsed.affected_radius_km ?? 2,
     expected_duration_hours: parsed.expected_duration_hours ?? 2,
     description: parsed.description ?? '',
+    spread_probability: parsed.spread_probability ?? 0.3,
+    population_impact: parsed.population_impact ?? 1000,
+    escalation_probability: parsed.escalation_probability ?? 0.2,
+    time_to_peak_hours: parsed.time_to_peak_hours ?? 2,
     evidence: signal.evidence_sources,
     timestamp: new Date().toISOString(),
     status: 'active',
     ai_reasoning: parsed.ai_reasoning,
   };
-  logSuccess('CRISIS_DETECTION', 'CrisisDetectionAgent', 'CLASSIFY',
-    `Classified: ${crisis.type} @ ${crisis.location} → ${crisis.severity} (conf: ${crisis.confidence.toFixed(2)})`, {
+
+  logSuccess('CRISIS_ANALYSIS', 'CrisisAnalysisBrain', 'ANALYZE',
+    `Analyzed: ${crisis.type} @ ${crisis.location} → ${crisis.severity} (spread: ${(crisis.spread_probability! * 100).toFixed(0)}%, esc: ${(crisis.escalation_probability! * 100).toFixed(0)}%)`, {
     confidence: crisis.confidence,
     details: { id: crisis.id, severity: crisis.severity, radius: crisis.affected_radius_km },
   });
   return crisis;
 }
 
-// ── Risk Prediction Engine ───────────────────────────────────
-export async function predictRisk(crisis: CrisisEvent): Promise<CrisisEvent> {
-  logInfo('RISK_PREDICTION', 'RiskPredictionAgent', 'PREDICT_RISK',
-    `Predicting risk spread for ${crisis.type} at ${crisis.location}`, {
-    confidence: crisis.confidence,
-    details: { crisisId: crisis.id, severity: crisis.severity },
-  });
-  const prompt = `Predict risk escalation for this crisis. Return JSON only.
 
-Crisis:
-- Type: ${crisis.type}
-- Severity: ${crisis.severity}
-- Location: ${crisis.location}
-- Affected radius: ${crisis.affected_radius_km} km
-- Confidence: ${crisis.confidence}
-
-Return JSON: {"spread_probability":0.0,"population_impact":0,"escalation_probability":0.0,"time_to_peak_hours":0,"ai_reasoning":"brief risk reasoning"}`;
-
-  const raw = await callGemini('RiskPredictionAgent', 'PREDICT_RISK', prompt);
-  const parsed = JSON.parse(raw);
-  const result: CrisisEvent = {
-    ...crisis,
-    spread_probability: parsed.spread_probability ?? 0.3,
-    population_impact: parsed.population_impact ?? 1000,
-    escalation_probability: parsed.escalation_probability ?? 0.2,
-    time_to_peak_hours: parsed.time_to_peak_hours ?? 2,
-    ai_reasoning: (crisis.ai_reasoning || '') + '\n\nRisk: ' + (parsed.ai_reasoning || ''),
-  };
-  logSuccess('RISK_PREDICTION', 'RiskPredictionAgent', 'PREDICT_RISK',
-    `Risk: spread=${(result.spread_probability! * 100).toFixed(0)}%, escalation=${(result.escalation_probability! * 100).toFixed(0)}%, ~${result.population_impact?.toLocaleString()} people affected`, {
-    details: { spread_probability: result.spread_probability, escalation_probability: result.escalation_probability, population_impact: result.population_impact },
-  });
-  return result;
-}
-
-// ── Resource Allocation Engine ───────────────────────────────
-export async function optimizeResourceAllocation(
+// ── CALL #2: Response Planner Brain (Alloc + Sim + Notif) ────────
+export async function planResponseBrain(
   crisis: CrisisEvent,
   availableResources: ResourceUnit[]
-): Promise<AllocationPlan> {
-  logInfo('RESOURCE_ALLOCATION', 'ResourceAllocationAgent', 'OPTIMIZE',
-    `Optimizing allocation for ${crisis.type} at ${crisis.location} — ${availableResources.length} units available`, {
-    details: { crisisId: crisis.id, availableCount: availableResources.length, severity: crisis.severity },
-  });
-  const prompt = `Optimize emergency resource allocation. Return JSON only.
+): Promise<{ plan: AllocationPlan, simulation: SimulationResult, notifications: Notification[] }> {
+  logInfo('RESPONSE_PLANNER', 'ResponsePlannerBrain', 'PLAN',
+    `Planning response for ${crisis.type} at ${crisis.location} — ${availableResources.length} units available`);
 
-Crisis:
+  const prompt = `Formulate an emergency response plan, simulate the outcome, and generate alerts. Return JSON only.
+
+Crisis Profile:
 - Type: ${crisis.type}
 - Severity: ${crisis.severity}
 - Location: ${crisis.location}
+- Description: ${crisis.description}
 - Affected radius: ${crisis.affected_radius_km} km
 - Population impact: ${crisis.population_impact ?? 'unknown'}
 
-Available resources:
-${availableResources.map(r => `- ${r.id}: ${r.type} at ${r.location}`).join('\n')}
+Available Resources for Dispatch:
+${availableResources.map(r => `- [${r.type}] ID: ${r.id} at ${r.location}`).join('\n')}
 
-Return JSON: {"recommended_unit_ids":["id1","id2"],"total_response_time_minutes":0,"reasoning":"allocation reasoning","confidence":0.0}`;
+Return JSON with these exact fields:
+{
+  "allocation": {
+    "recommended_unit_ids": ["id1", "id2"],
+    "total_response_time_minutes": 0,
+    "allocation_reasoning": "reasoning",
+    "confidence": 0.0
+  },
+  "simulation": {
+    "predicted_scenario": "outcome description",
+    "risk_tradeoffs": ["t1"],
+    "estimated_lives_saved": 0
+  },
+  "notifications": [
+    {"channel": "public", "title": "title", "message": "message"},
+    {"channel": "emergency_services", "title": "title", "message": "message"},
+    {"channel": "hospitals", "title": "title", "message": "message"},
+    {"channel": "utilities", "title": "title", "message": "message"}
+  ]
+}`;
 
-  const raw = await callGemini('ResourceAllocationAgent', 'OPTIMIZE', prompt);
+  const raw = await callGemini('ResponsePlannerBrain', 'PLAN', prompt);
   const parsed = JSON.parse(raw);
-  const selectedIds: string[] = parsed.recommended_unit_ids ?? [];
+  
+  // Parse Allocation
+  const allocData = parsed.allocation || {};
+  const selectedIds: string[] = allocData.recommended_unit_ids ?? [];
   const selected = availableResources.filter(r => selectedIds.includes(r.id)).slice(0, 6);
   if (selected.length === 0 && availableResources.length > 0) {
     selected.push(...availableResources.slice(0, 3));
-    logWarn('RESOURCE_ALLOCATION', 'ResourceAllocationAgent', 'OPTIMIZE',
-      'Gemini unit IDs not matched in available pool — using top-3 fallback');
   }
   const plan: AllocationPlan = {
     crisis_id: crisis.id,
     units: selected.map(u => ({ ...u, status: 'dispatched', assigned_crisis_id: crisis.id })),
-    total_response_time_minutes: parsed.total_response_time_minutes ?? 15,
-    reasoning: parsed.reasoning ?? 'Default allocation',
-    confidence: parsed.confidence ?? 0.7,
+    total_response_time_minutes: allocData.total_response_time_minutes ?? 15,
+    reasoning: allocData.allocation_reasoning ?? 'Default allocation',
+    confidence: allocData.confidence ?? 0.7,
     timestamp: new Date().toISOString(),
   };
-  logSuccess('RESOURCE_ALLOCATION', 'ResourceAllocationAgent', 'OPTIMIZE',
-    `Dispatching ${plan.units.length} units → ETA ${plan.total_response_time_minutes}min (conf: ${plan.confidence.toFixed(2)})`, {
-    confidence: plan.confidence,
-    details: { unitsDispatched: plan.units.length, unitTypes: plan.units.map(u => u.type), eta: plan.total_response_time_minutes },
-  });
-  return plan;
-}
 
-// ── Simulation Engine ────────────────────────────────────────
-export async function simulateOutcome(crisis: CrisisEvent, plan: AllocationPlan): Promise<SimulationResult> {
-  logInfo('SIMULATION', 'SimulationAgent', 'SIMULATE',
-    `Running pre-execution simulation for ${crisis.type} at ${crisis.location}`, {
-    details: { crisisId: crisis.id, planUnits: plan.units.length, eta: plan.total_response_time_minutes },
-  });
-  const prompt = `Simulate the outcome of this emergency response plan. Return JSON only.
-
-Crisis: ${crisis.type} at ${crisis.location}, severity: ${crisis.severity}
-Plan: ${plan.reasoning}
-Units: ${plan.units.map(u => u.type).join(', ')}
-Response time: ${plan.total_response_time_minutes} min
-
-Return JSON: {"scenario":"outcome description","best_action_plan":"actions","risk_tradeoffs":["t1"],"secondary_impacts":["i1"],"estimated_lives_saved":null,"estimated_response_time":0,"confidence":0.0,"reasoning":"reasoning","alternatives":[{"plan":"alt","pros":["p"],"cons":["c"]}]}`;
-
-  const raw = await callGemini('SimulationAgent', 'SIMULATE', prompt);
-  const parsed = JSON.parse(raw);
-  const result: SimulationResult = {
+  // Parse Simulation
+  const simData = parsed.simulation || {};
+  const simulation: SimulationResult = {
     crisis_id: crisis.id,
-    scenario: parsed.scenario ?? 'Standard response',
-    best_action_plan: parsed.best_action_plan ?? plan.reasoning,
-    risk_tradeoffs: parsed.risk_tradeoffs ?? [],
-    secondary_impacts: parsed.secondary_impacts ?? [],
-    estimated_lives_saved: parsed.estimated_lives_saved,
-    estimated_response_time: parsed.estimated_response_time ?? plan.total_response_time_minutes,
-    confidence: parsed.confidence ?? 0.75,
-    reasoning: parsed.reasoning ?? '',
-    alternatives: parsed.alternatives ?? [],
+    scenario: simData.predicted_scenario ?? 'Standard response',
+    best_action_plan: plan.reasoning,
+    risk_tradeoffs: simData.risk_tradeoffs ?? [],
+    secondary_impacts: [],
+    estimated_lives_saved: simData.estimated_lives_saved ?? null,
+    estimated_response_time: plan.total_response_time_minutes,
+    confidence: plan.confidence,
+    reasoning: '',
+    alternatives: [],
   };
-  logSuccess('SIMULATION', 'SimulationAgent', 'SIMULATE',
-    `Simulation done: ${result.alternatives.length} alts, ${result.estimated_lives_saved ?? 'N/A'} lives protected, ETA ${result.estimated_response_time}min`, {
-    confidence: result.confidence,
-    details: { alternatives: result.alternatives.length, livesSaved: result.estimated_lives_saved, responseTime: result.estimated_response_time },
-  });
-  return result;
-}
 
-// ── Notification Message Generator ──────────────────────────
-export async function generateNotificationMessages(crisis: CrisisEvent): Promise<Array<{channel: string; title: string; message: string}>> {
-  logInfo('NOTIFICATION', 'NotificationAgent', 'GENERATE_ALERTS',
-    `Generating ${crisis.severity} alerts for ${crisis.type} at ${crisis.location}`);
-  const prompt = `Generate emergency notifications for different channels. Return JSON array only.
+  // Parse Notifications
+  const notifsData = Array.isArray(parsed.notifications) ? parsed.notifications : [];
+  const notifications: Notification[] = notifsData.map((msg: any) => ({
+    id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    crisis_id: crisis.id,
+    channel: (msg.channel || 'public') as Notification['channel'],
+    severity: crisis.severity,
+    title: msg.title || 'Emergency Alert',
+    message: msg.message || crisis.description,
+    location: crisis.location,
+    timestamp: new Date().toISOString(),
+    sent: true,
+  }));
 
-Crisis: ${crisis.type} at ${crisis.location}
-Severity: ${crisis.severity}
-Description: ${crisis.description}
-Affected radius: ${crisis.affected_radius_km} km
+  logSuccess('RESPONSE_PLANNER', 'ResponsePlannerBrain', 'PLAN',
+    `Planned: Dispatching ${plan.units.length} units (ETA ${plan.total_response_time_minutes}m) + ${notifications.length} alerts`);
 
-Return JSON array: [{"channel":"public","title":"title","message":"message"},{"channel":"emergency_services","title":"title","message":"message"},{"channel":"hospitals","title":"title","message":"message"},{"channel":"utilities","title":"title","message":"message"}]`;
-
-  const raw = await callGemini('NotificationAgent', 'GENERATE_ALERTS', prompt);
-  const messages = JSON.parse(raw);
-  logSuccess('NOTIFICATION', 'NotificationAgent', 'GENERATE_ALERTS',
-    `Generated ${messages.length} alerts: ${messages.map((m: {channel:string}) => m.channel).join(', ')}`);
-  return messages;
+  return { plan, simulation, notifications };
 }
 
 // ── Decision Log Builder ─────────────────────────────────────

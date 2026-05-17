@@ -10,8 +10,10 @@ export type LogCategory =
   | 'AGENT_DECISION'
   | 'SIGNAL_FUSION'
   | 'CRISIS_DETECTION'
+  | 'CRISIS_ANALYSIS'
   | 'RISK_PREDICTION'
   | 'RESOURCE_ALLOCATION'
+  | 'RESPONSE_PLANNER'
   | 'SIMULATION'
   | 'TRAFFIC_CONTROL'
   | 'NOTIFICATION'
@@ -37,13 +39,21 @@ export interface LogEntry {
   cycleNumber?: number;
 }
 
-// In-memory circular log buffer (last 500 entries)
+// Use globalThis to maintain a single global state across Next.js Turbopack dev compilations
+const globalForLogger = globalThis as unknown as {
+  logs?: LogEntry[];
+  globalCycle?: number;
+};
+
+export const logs: LogEntry[] = globalForLogger.logs ?? [];
+globalForLogger.logs = logs;
+
 const MAX_LOGS = 500;
-let logs: LogEntry[] = [];
-let globalCycle = 0;
+let globalCycle = globalForLogger.globalCycle ?? 0;
 
 export function setGlobalCycle(cycle: number) {
   globalCycle = cycle;
+  globalForLogger.globalCycle = cycle;
 }
 
 export function log(
@@ -68,7 +78,9 @@ export function log(
   };
 
   logs.unshift(entry); // newest first
-  if (logs.length > MAX_LOGS) logs = logs.slice(0, MAX_LOGS);
+  if (logs.length > MAX_LOGS) {
+    logs.splice(MAX_LOGS); // Truncate in-place to preserve the global array reference
+  }
   return entry;
 }
 
@@ -142,7 +154,7 @@ export function getLogs(filters?: {
 }
 
 export function clearLogs() {
-  logs = [];
+  logs.length = 0; // Truncate the array in-place to support const reference
 }
 
 export function getLogStats() {
