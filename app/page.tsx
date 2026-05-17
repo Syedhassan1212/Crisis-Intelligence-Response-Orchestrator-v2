@@ -112,6 +112,7 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#10131a] text-zinc-100 font-sans">
+      <div className="scan-line" />
       
       {/* 1. Tactical Command Header */}
       <Header

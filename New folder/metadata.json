@@ -1,0 +1,6 @@
+{
+  "name": "CIRO Command Center",
+  "description": "Advanced high-density monitoring dashboard with tactical overview, climate telemetry, and asset tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

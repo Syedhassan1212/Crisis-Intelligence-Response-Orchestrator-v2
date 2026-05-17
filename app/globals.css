@@ -1,230 +1,178 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
-:root {
-  --color-bg-primary: #09090b; /* Zinc 950 */
-  --color-bg-secondary: #09090b;
-  --color-bg-card: #18181b; /* Zinc 900 */
-  --color-bg-card-hover: #27272a; /* Zinc 800 */
-  --color-border: #27272a; /* Zinc 800 */
-  --color-border-hover: #3f3f46; /* Zinc 700 */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Spacing Tokens from Stitch Spec */
+  --spacing-panel-padding: 16px;
+  --spacing-gutter: 12px;
+  --spacing-element-gap: 8px;
+  --spacing-unit: 4px;
+  --spacing-margin-page: 24px;
+
+  /* Custom Border Radius */
+  --radius-default: 0.125rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.5rem;
+  --radius-full: 0.75rem;
+
+  /* Custom Font Families */
+  --font-display-lg: "Geist", sans-serif;
+  --font-data-mono: "JetBrains Mono", monospace;
+  --font-label-caps: "JetBrains Mono", monospace;
+  --font-body-sm: "Geist", sans-serif;
+  --font-body-xs: "Geist", sans-serif;
+  --font-headline-md: "Geist", sans-serif;
+
+  /* Font Sizes */
+  --text-display-lg: 30px;
+  --text-data-mono: 13px;
+  --text-label-caps: 10px;
+  --text-body-sm: 14px;
+  --text-body-xs: 12px;
+  --text-headline-md: 20px;
+
+  /* Stitch Exact Color Palette Tokens */
+  --color-background: #10131a;
+  --color-surface: #10131a;
   
-  --color-accent-red: #ef4444;
-  --color-accent-orange: #f97316;
-  --color-accent-amber: #f59e0b;
-  --color-accent-cyan: #06b6d4;
-  --color-accent-blue: #3b82f6;
-  --color-accent-green: #10b981;
-  --color-accent-purple: #8b5cf6;
+  --color-surface-dim: #10131a;
+  --color-surface-bright: #363941;
+  --color-surface-lowest: #0b0e15;
+  --color-surface-low: #191b23;
+  --color-surface-high: #272a31;
+  --color-surface-highest: #32353c;
   
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --color-surface-container: #1d2027;
+  --color-surface-container-low: #191b23;
+  --color-surface-container-high: #272a31;
+  --color-surface-container-highest: #32353c;
+  --color-surface-container-lowest: #0b0e15;
+
+  --color-on-surface: #e1e2ec;
+  --color-on-surface-variant: #c2c6d6;
+  --color-on-background: #e1e2ec;
+  --color-inverse-surface: #e1e2ec;
+  --color-inverse-on-surface: #2e3038;
+
+  --color-primary: #adc6ff;
+  --color-on-primary: #002e6a;
+  --color-primary-container: #4d8eff;
+  --color-on-primary-container: #00285d;
+  --color-primary-fixed: #d8e2ff;
+  --color-primary-fixed-dim: #adc6ff;
+  --color-on-primary-fixed: #001a42;
+  --color-on-primary-fixed-variant: #004395;
+  --color-surface-tint: #adc6ff;
+  --color-inverse-primary: #005ac2;
+
+  --color-secondary: #c6c5cf;
+  --color-on-secondary: #2f3038;
+  --color-secondary-container: #4a4b53;
+  --color-on-secondary-container: #bcbbc5;
+  --color-secondary-fixed: #e3e1ec;
+  --color-secondary-fixed-dim: #c6c5cf;
+  --color-on-secondary-fixed: #1a1b22;
+  --color-on-secondary-fixed-variant: #46464e;
+
+  --color-tertiary: #ffb786;
+  --color-on-tertiary: #502400;
+  --color-tertiary-container: #df7412;
+  --color-on-tertiary-container: #461f00;
+  --color-tertiary-fixed: #ffdcc6;
+  --color-tertiary-fixed-dim: #ffb786;
+  --color-on-tertiary-fixed: #311400;
+  --color-on-tertiary-fixed-variant: #723600;
+
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+
+  --color-outline: #8c909f;
+  --color-outline-variant: #424754;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@layer base {
+  body {
+    @apply bg-background text-on-surface font-body-sm antialiased selection:bg-primary/30 selection:text-primary;
+    overflow: hidden;
+  }
 }
 
-html, body {
-  height: 100%;
-  background-color: var(--color-bg-primary);
-  color: #fafafa;
-  font-family: var(--font-sans);
-  overflow: hidden;
-  -webkit-font-smoothing: antialiased;
+@layer components {
+  .glass-panel {
+    @apply bg-surface-lowest/20 backdrop-blur-md border border-outline-variant/30;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-outline-variant/30 rounded-full hover:bg-outline-variant/50 transition-colors;
+  }
 }
 
-/* ── Modern Flat Grid Background (Shadcn style) ── */
-.grid-background {
-  background-color: var(--color-bg-primary);
-  background-image: 
-    radial-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px);
-  background-size: 24px 24px;
+/* ── Modern CRT Scan Line Animation ── */
+@keyframes scan-line {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(100vh); }
 }
 
-/* ── Premium Modern Scrollbar ── */
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 99px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+.scan-line {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(to bottom, transparent, rgba(173, 198, 255, 0.1), transparent);
+  animation: scan-line 8s linear infinite;
+  pointer-events: none;
+  z-index: 100;
 }
 
-/* ── Clean Micro Badges (Sleek Shadcn Badges) ── */
-.tag-base {
-  font-family: var(--font-sans);
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid transparent;
+/* ── Emerald Pulsing Dot Animation ── */
+@keyframes pulse-emerald {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
-.tag-critical {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+.pulse-emerald {
+  animation: pulse-emerald 2s infinite;
 }
 
-.tag-high {
-  background: rgba(249, 115, 22, 0.1);
-  border-color: rgba(249, 115, 22, 0.2);
-  color: #f97316;
-}
-
-.tag-medium {
-  background: rgba(245, 158, 11, 0.1);
-  border-color: rgba(245, 158, 11, 0.2);
-  color: #f59e0b;
-}
-
-.tag-low {
-  background: #27272a;
-  border-color: #3f3f46;
-  color: #a1a1aa;
-}
-
-.tag-secure {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.2);
-  color: #10b981;
-}
-
-/* ── Premium Modern Cards (Flat Zinc, rounded-lg, thin borders) ── */
+/* ── Compatibility selectors with legacy components ── */
 .hud-panel {
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  @apply bg-surface-container border border-outline-variant rounded-lg transition-all duration-150;
 }
-
 .hud-panel:hover {
-  border-color: var(--color-border-hover);
+  @apply border-outline;
 }
-
-.hud-panel-danger {
-  background: var(--color-bg-card);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  border-radius: 8px;
-}
-
-.hud-panel-warning {
-  background: var(--color-bg-card);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  border-radius: 8px;
-}
-
-/* ── Modern Progress Bars ── */
 .telemetry-bar {
-  height: 4px;
-  background: #27272a;
-  border-radius: 99px;
-  overflow: hidden;
-  position: relative;
+  @apply h-1 bg-surface-container-highest rounded-full overflow-hidden relative;
 }
-
 .telemetry-fill {
-  height: 100%;
-  border-radius: 99px;
-  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  @apply h-full rounded-full transition-all duration-500 ease-out;
 }
-
-/* ── Decrypted Mono Log Block ── */
-.cia-terminal {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  line-height: 1.6;
-  color: #e4e4e7;
-  background: #09090b;
-  border: 1px solid #27272a;
-  border-radius: 6px;
-  padding: 12px;
+.tag-base {
+  @apply px-1.5 py-0.5 rounded text-[8px] font-bold font-mono border tracking-wider;
 }
-
-.cia-terminal-header {
-  border-bottom: 1px solid #27272a;
-  padding-bottom: 6px;
-  margin-bottom: 8px;
-  color: #71717a;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+.tag-critical {
+  @apply bg-error/10 text-error border-error/25;
 }
-
-/* ── Premium Flat Buttons (Shadcn style) ── */
-.btn-hud {
-  font-family: var(--font-sans);
-  font-size: 0.75rem;
-  font-weight: 500;
-  padding: 6px 12px;
-  background: #18181b;
-  border: 1px solid #27272a;
-  border-radius: 6px;
-  color: #e4e4e7;
-  transition: all 0.1s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1.5;
+.tag-high {
+  @apply bg-tertiary/10 text-tertiary border-tertiary/25;
 }
-
-.btn-hud:hover:not(:disabled) {
-  background: #27272a;
-  border-color: #3f3f46;
-  color: #fafafa;
-  cursor: pointer;
+.tag-medium {
+  @apply bg-secondary-container text-on-surface border-outline-variant;
 }
-
-.btn-hud-danger {
-  background: rgba(239, 68, 68, 0.05);
-  border-color: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-}
-
-.btn-hud-danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #fafafa;
-}
-
-.btn-hud-active {
-  background: #27272a;
-  border-color: #3f3f46;
-  color: #fafafa;
-}
-
-.btn-hud-active:hover:not(:disabled) {
-  background: #3f3f46;
-  border-color: #52525b;
-}
-
-/* ── Google Maps InfoWindow Premium styling Override ── */
-.gm-style .gm-style-iw-c {
-  background-color: #18181b !important;
-  border: 1px solid #27272a !important;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3) !important;
-  border-radius: 8px !important;
-  padding: 0 !important;
-}
-
-.gm-style .gm-style-iw-d {
-  overflow: auto !important;
-}
-
-.gm-style .gm-style-iw-tc::after {
-  background-color: #18181b !important;
+.tag-secure {
+  @apply bg-emerald-500/10 text-emerald-400 border-emerald-500/25;
 }
