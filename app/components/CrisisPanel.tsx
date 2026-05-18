@@ -1,12 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { ShieldAlert, AlertTriangle, CheckCircle, Radio } from 'lucide-react';
-import type { CrisisEvent, FusedSignal } from '@/lib/types';
+import { Radio, X, ChevronDown, ChevronRight, Zap } from 'lucide-react';
+import type { CrisisEvent, FusedSignal, TrafficAction } from '@/lib/types';
+import { formatDistanceToNow } from 'date-fns';
 
 interface CrisisPanelProps {
   crises: CrisisEvent[];
   signals: FusedSignal[];
+  trafficActions?: TrafficAction[];
+  onCollapse?: () => void;
 }
 
 const CRISIS_ICONS: Record<string, string> = {
@@ -15,230 +18,191 @@ const CRISIS_ICONS: Record<string, string> = {
   infrastructure_failure: '🏗️', unknown: '❓',
 };
 
-const SEVERITY_ACCENTS: Record<string, { bg: string; text: string; border: string }> = {
-  CRITICAL: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/25' },
-  HIGH: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/25' },
-  MEDIUM: { bg: 'bg-sky-500/10', text: 'text-sky-400', border: 'border-sky-500/25' },
-  LOW: { bg: 'bg-zinc-800/40', text: 'text-zinc-400', border: 'border-zinc-800' },
+const SEV_STYLES: Record<string, { color: string; bg: string; border: string }> = {
+  CRITICAL:    { color: '#ef4444', bg: '#ef444415', border: '#ef444440' },
+  HIGH:        { color: '#f59e0b', bg: '#f59e0b15', border: '#f59e0b40' },
+  MEDIUM:      { color: '#eab308', bg: '#eab30815', border: '#eab30840' },
+  LOW:         { color: '#22c55e', bg: '#22c55e15', border: '#22c55e40' },
 };
 
-export default function CrisisPanel({ crises, signals }: CrisisPanelProps) {
-  const [activeTab, setActiveTab] = useState<'all' | 'reports' | 'incidents'>('all');
+function formatTime(ts: string) {
+  try {
+    return new Date(ts).toISOString().slice(11, 19) + 'Z';
+  } catch { return ts?.slice(0, 8) + 'Z'; }
+}
+
+export default function CrisisPanel({ crises, signals, trafficActions = [], onCollapse }: CrisisPanelProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const activeCrises = crises.filter(c => c.status === 'active').sort((a, b) => {
-    const rank: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
-    return (rank[b.severity] || 0) - (rank[a.severity] || 0);
-  });
-  
-  const resolvedCrises = crises.filter(c => c.status === 'resolved');
-
-  // Compute metrics for display
-  const totalCitizenReports = signals.reduce((sum, s) => sum + (s.raw_posts?.length || 1), 0) + 1200;
-  const validatedTargetCount = activeCrises.length;
-  const verificationRatioPercentage = Math.round((validatedTargetCount / (signals.length || 1)) * 100);
+  const activeCrises = crises
+    .filter(c => c.status === 'active')
+    .sort((a, b) => {
+      const rank: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+      return (rank[b.severity] || 0) - (rank[a.severity] || 0);
+    });
 
   return (
-    <div className="flex flex-col h-full bg-[#0d1017]/40 backdrop-blur-md border-r border-zinc-800">
-      
-      {/* 1. Header Pill Toggles */}
-      <div className="flex border-b border-zinc-800">
-        <button 
-          onClick={() => setActiveTab('all')}
-          className={`flex-1 py-3.5 font-mono text-[9px] font-bold uppercase tracking-wider transition-colors hover:bg-zinc-900/30 ${
-            activeTab === 'all' ? 'border-b-2 border-sky-400 text-sky-400 font-extrabold' : 'text-zinc-400'
-          }`}
-        >
-          All Feeds
-        </button>
-        <button 
-          onClick={() => setActiveTab('reports')}
-          className={`flex-1 py-3.5 font-mono text-[9px] font-bold uppercase tracking-wider transition-colors hover:bg-zinc-900/30 ${
-            activeTab === 'reports' ? 'border-b-2 border-sky-400 text-sky-400 font-extrabold' : 'text-zinc-400'
-          }`}
-        >
-          Reports
-        </button>
-        <button 
-          onClick={() => setActiveTab('incidents')}
-          className={`flex-1 py-3.5 font-mono text-[9px] font-bold uppercase tracking-wider transition-colors hover:bg-zinc-900/30 ${
-            activeTab === 'incidents' ? 'border-b-2 border-sky-400 text-sky-400 font-extrabold' : 'text-zinc-400'
-          }`}
-        >
-          Incidents
-        </button>
+    <div className="flex flex-col h-full bg-[#111113] overflow-hidden">
+
+      {/* ── HEADER ── */}
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-[#27272a] bg-[#111113]">
+        <div className="flex items-center gap-2">
+          <Radio className="w-4 h-4 text-emerald-400" />
+          <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest font-mono">
+            Interception Cards
+          </span>
+        </div>
+        {onCollapse && (
+          <button 
+            onClick={onCollapse}
+            className="w-6 h-6 flex items-center justify-center rounded text-zinc-500 hover:text-zinc-200 hover:bg-[#27272a] transition-colors"
+            title="Hide Interception Cards"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
-      {/* 2. Scrollable Body Contents */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        
-        {/* Metric Matrices */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="p-3 bg-zinc-950 rounded border border-zinc-800/80">
-            <span className="font-mono text-[8px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">CITIZEN REPORTS</span>
-            <span className="text-[18px] font-bold text-zinc-100 leading-none">{totalCitizenReports.toLocaleString()}</span>
-          </div>
-          <div className="p-3 bg-zinc-950 rounded border border-zinc-800/80">
-            <span className="font-mono text-[8px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">VALIDATED TARGETS</span>
-            <span className="text-[18px] font-bold text-sky-400 leading-none">{validatedTargetCount} Active</span>
-          </div>
-        </div>
+      {/* ── SCROLLABLE FEED ── */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar bg-[#111113]">
 
-        {/* Verification Load segment gauge */}
-        <div className="p-3 bg-zinc-900/30 rounded border border-zinc-800/80">
-          <div className="flex justify-between items-center mb-2">
-            <span className="font-mono text-[8px] font-bold text-zinc-500 uppercase tracking-widest">VERIFICATION RATIO</span>
-            <span className="font-mono text-[10px] font-semibold text-sky-400">{verificationRatioPercentage}%</span>
+        {activeCrises.length === 0 && signals.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center opacity-50">
+            <Zap className="w-6 h-6 mb-3 text-zinc-500" />
+            <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-mono">Signal Void</div>
+            <div className="text-[9px] text-zinc-600 mt-1 font-mono">No active intercepts detected.</div>
           </div>
+        )}
+
+        {/* VALIDATED CRISES */}
+        {activeCrises.map(crisis => {
+          const isExpanded = expandedId === crisis.id;
+          const sev = SEV_STYLES[crisis.severity] || SEV_STYLES['LOW'];
+          const typeName = crisis.type.replace(/_/g, ' ').toUpperCase();
+          const icon = CRISIS_ICONS[crisis.type] || '❓';
+          const targetId = crisis.id.slice(0, 6).toUpperCase();
+
+          return (
+            <div
+              key={crisis.id}
+              className="group bg-[#1a1a1d] border border-[#27272a] rounded overflow-hidden transition-colors hover:border-[#3f3f46]"
+            >
+              <div 
+                className="p-3 cursor-pointer select-none flex items-start gap-3"
+                onClick={() => setExpandedId(isExpanded ? null : crisis.id)}
+              >
+                {/* Status Indicator */}
+                <div className="flex-shrink-0 mt-1">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: sev.color, boxShadow: `0 0 8px ${sev.color}80` }} />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-bold font-mono tracking-wider text-zinc-200 truncate">
+                      ID-{targetId}
+                    </span>
+                    <span className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded-sm uppercase" style={{ color: sev.color, backgroundColor: sev.bg, borderColor: sev.border, borderWidth: 1 }}>
+                      {crisis.severity}
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] font-semibold text-zinc-300 leading-snug mb-2">
+                    {icon} {typeName} <span className="text-zinc-500 font-normal">@</span> {crisis.location}
+                  </div>
+
+                  <div className="flex items-center gap-4 text-[9px] font-mono text-zinc-500 uppercase tracking-wide">
+                    <span>{formatDistanceToNow(new Date(crisis.timestamp || new Date()), { addSuffix: true })}</span>
+                    <span className="flex items-center gap-1"><span className="text-zinc-600">CONF:</span> <span className="text-emerald-400">{(crisis.confidence * 100).toFixed(0)}%</span></span>
+                  </div>
+                </div>
+
+                <div className="flex-shrink-0 text-zinc-600 group-hover:text-zinc-400 transition-colors mt-1">
+                  {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div className="px-3 pb-3 pt-1 border-t border-[#27272a]/50 bg-[#141416]">
+                  <div className="space-y-3 mt-2">
+                    {/* Desc */}
+                    <div>
+                      <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest font-mono mb-1">Raw Report</div>
+                      <div className="text-[10px] text-zinc-400 font-mono leading-relaxed bg-[#111113] p-2 rounded border border-[#27272a]">
+                        {crisis.description}
+                      </div>
+                    </div>
+                    
+                    {/* Metrics */}
+                    <div className="grid grid-cols-2 gap-2 text-[9px] font-mono">
+                      <div className="bg-[#111113] p-2 rounded border border-[#27272a]">
+                        <span className="text-zinc-600 block mb-0.5">LAT/LON</span>
+                        <span className="text-zinc-300">{crisis.lat?.toFixed(4) ?? '24.8607'}, {crisis.lng?.toFixed(4) ?? '67.0011'}</span>
+                      </div>
+                      <div className="bg-[#111113] p-2 rounded border border-[#27272a]">
+                        <span className="text-zinc-600 block mb-0.5">RADIUS/DUR</span>
+                        <span className="text-zinc-300">{crisis.affected_radius_km}km / {crisis.expected_duration_hours}h</span>
+                      </div>
+                    </div>
+
+                    {/* AI Reasoning */}
+                    {crisis.ai_reasoning && (
+                      <div>
+                        <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest font-mono mb-1">AI Context</div>
+                        <div className="text-[10px] text-sky-400/90 font-mono leading-relaxed italic border-l-2 border-sky-500/30 pl-2 py-0.5">
+                          "{crisis.ai_reasoning}"
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* UNVERIFIED SIGNALS */}
+        {signals.length > 0 && activeCrises.length > 0 && (
+          <div className="flex items-center gap-3 pt-3 pb-1">
+            <div className="h-px flex-1 bg-[#27272a]" />
+            <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest font-mono">Raw Signals</span>
+            <div className="h-px flex-1 bg-[#27272a]" />
+          </div>
+        )}
+
+        {signals.slice(0, 10).map((sig, i) => {
+          const typeName = sig.event_type.replace(/_/g, ' ').toUpperCase();
+          const targetId = `SIG-${i.toString().padStart(3, '0')}`;
           
-          {/* Transparent 5-segment layout */}
-          <div className="flex gap-1 h-2 select-none">
-            {[1, 2, 3, 4, 5].map((segIndex) => {
-              const activeSegs = Math.ceil(verificationRatioPercentage / 20);
-              const isFilled = segIndex <= activeSegs;
-              return (
-                <div 
-                  key={segIndex} 
-                  className={`flex-1 rounded-sm transition-all duration-300 ${
-                    isFilled ? 'bg-sky-500/80' : 'bg-zinc-800/25'
-                  }`}
-                />
-              );
-            })}
-          </div>
-        </div>
+          return (
+            <div key={`sig-${i}`} className="bg-[#1a1a1d] border border-[#27272a] border-l-4 border-l-zinc-700 rounded p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold font-mono tracking-wider text-zinc-500">
+                  {targetId}
+                </span>
+                <span className="text-[9px] font-mono text-zinc-600 uppercase">
+                  {formatDistanceToNow(new Date(sig.timestamp), { addSuffix: true })}
+                </span>
+              </div>
+              
+              <div className="text-[11px] font-semibold text-zinc-400 leading-snug mb-2">
+                {CRISIS_ICONS[sig.event_type] || '📡'} {typeName} <span className="text-zinc-600 font-normal">@</span> {sig.location}
+              </div>
 
-        {/* Dynamic Lists */}
-        <div className="space-y-2">
-          <span className="font-mono text-[9px] font-bold text-zinc-500 uppercase tracking-widest block pb-2 border-b border-zinc-850">
-            ACTIVE TARGET CHANNELS
-          </span>
-
-          {activeTab === 'incidents' || activeTab === 'all' ? (
-            <>
-              {activeCrises.length === 0 && activeTab === 'incidents' && (
-                <div className="text-center py-8 px-4 border border-dashed border-zinc-800 rounded-lg">
-                  <div className="text-2xl mb-1.5">🛡️</div>
-                  <div className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Region Secure</div>
-                  <div className="text-[8px] text-zinc-500 mt-1">No active incidents reported. Monitoring domain.</div>
+              {sig.raw_posts?.[0] && (
+                <div className="text-[10px] text-zinc-500 font-mono leading-relaxed bg-[#111113] p-2 rounded border border-[#27272a] mb-2 italic">
+                  "{sig.raw_posts[0].text}"
                 </div>
               )}
 
-              {activeCrises.map(crisis => {
-                const targetId = crisis.id.slice(0, 4).toUpperCase();
-                const accent = SEVERITY_ACCENTS[crisis.severity] || SEVERITY_ACCENTS.LOW;
-                const isExpanded = expandedId === crisis.id;
-
-                return (
-                  <div
-                    key={crisis.id}
-                    onClick={() => setExpandedId(isExpanded ? null : crisis.id)}
-                    className="p-3 bg-zinc-950/20 backdrop-blur-sm border border-zinc-850 hover:border-zinc-700 transition-all rounded cursor-pointer space-y-2 select-none group"
-                  >
-                    <div className="flex justify-between items-start">
-                      <span className="font-mono text-[10px] text-sky-400 group-hover:text-sky-300 transition-colors">
-                        ID: TRG-{targetId}
-                      </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[7.5px] font-bold tracking-wider font-mono border ${accent.bg} ${accent.text} ${accent.border}`}>
-                        {crisis.severity}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg flex-shrink-0">{CRISIS_ICONS[crisis.type] || '❓'}</span>
-                      <span className="text-[11px] font-bold text-zinc-200 capitalize truncate">
-                        {crisis.type.replace('_', ' ')}
-                      </span>
-                    </div>
-
-                    <p className="text-[10px] text-zinc-400 line-clamp-2 leading-relaxed">
-                      {crisis.description}
-                    </p>
-
-                    <div className="flex gap-2">
-                      <span className="bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded font-mono text-[9px] text-zinc-400">
-                        📍 {crisis.location}
-                      </span>
-                      <span className="bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded font-mono text-[9px] text-zinc-400 ml-auto">
-                        Match: {(crisis.confidence * 100).toFixed(0)}%
-                      </span>
-                    </div>
-
-                    {/* Operational Details Card */}
-                    {isExpanded && (
-                      <div className="px-3 pb-3 border-t border-zinc-800 mt-2 pt-3 space-y-3 bg-zinc-950/60 rounded-b">
-                        <div className="grid grid-cols-2 gap-2 text-[9px] font-mono">
-                          <div className="bg-[#0b0e15] border border-zinc-800 rounded p-1.5">
-                            <span className="text-zinc-500 uppercase tracking-wider text-[7.5px] font-bold block">Impact Radius</span>
-                            <span className="text-zinc-200 font-semibold mt-0.5">{crisis.affected_radius_km} KM</span>
-                          </div>
-                          <div className="bg-[#0b0e15] border border-zinc-800 rounded p-1.5">
-                            <span className="text-zinc-500 uppercase tracking-wider text-[7.5px] font-bold block">Est. Duration</span>
-                            <span className="text-zinc-200 font-semibold mt-0.5">{crisis.expected_duration_hours} Hrs</span>
-                          </div>
-                        </div>
-
-                        {crisis.ai_reasoning && (
-                          <div className="bg-[#0b0e15] border border-zinc-800 rounded p-2 text-zinc-300 font-mono text-[9px] leading-relaxed">
-                            <span className="text-[7.5px] text-sky-400 font-bold uppercase tracking-wider block mb-1">🧠 Cognitive Context</span>
-                            <p className="italic">"{crisis.ai_reasoning}"</p>
-                          </div>
-                        )}
-
-                        <div className="text-[8px] font-mono text-zinc-500 border-t border-zinc-850 pt-2 flex flex-wrap gap-1">
-                          <span className="text-[7.5px] uppercase font-bold text-zinc-600 mr-1">Evidence Keys:</span>
-                          {crisis.evidence.join(' · ')}
-                        </div>
-                      </div>
-                    )}
-
-                  </div>
-                );
-              })}
-            </>
-          ) : null}
-
-          {activeTab === 'reports' || activeTab === 'all' ? (
-            <>
-              {signals.slice(0, 10).map((sig, i) => {
-                const accent = SEVERITY_ACCENTS[sig.urgency_level] || SEVERITY_ACCENTS.LOW;
-                return (
-                  <div
-                    key={i}
-                    className="p-3 bg-zinc-950/20 border border-zinc-850 hover:border-zinc-800 rounded space-y-2 select-none"
-                  >
-                    <div className="flex justify-between items-start">
-                      <span className="font-mono text-[10px] text-zinc-400">
-                        ID: SIG-{sig.confidence_score.toString().slice(2, 6)}
-                      </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[7.5px] font-bold tracking-wider font-mono border ${accent.bg} ${accent.text} ${accent.border}`}>
-                        {sig.urgency_level}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Radio className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
-                      <span className="text-[10px] font-bold text-zinc-300 capitalize truncate">
-                        {sig.event_type.replace('_', ' ')} · {sig.location}
-                      </span>
-                    </div>
-
-                    {sig.raw_posts && sig.raw_posts.length > 0 && (
-                      <div className="bg-[#0b0e15] border border-zinc-800 p-2 rounded text-[9.5px] font-mono text-zinc-300 italic leading-relaxed">
-                        <span className="text-[7.5px] text-zinc-500 block font-bold not-italic mb-1 uppercase">CITIZEN INTERCEPT:</span>
-                        "{sig.raw_posts[0].text}"
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </>
-          ) : null}
-
-        </div>
+              <div className="flex items-center justify-between text-[9px] font-mono uppercase tracking-wide">
+                <span className="text-zinc-600">SRC: {sig.evidence_sources?.[0] || 'social_media'}</span>
+                <span className="text-zinc-500">CONF: {Math.round(sig.confidence_score * 100)}%</span>
+              </div>
+            </div>
+          );
+        })}
 
       </div>
-
     </div>
   );
 }
