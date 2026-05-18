@@ -112,7 +112,8 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
     try {
       const map = new google.maps.Map(mapRef.current, {
         center: { lat: 24.8607, lng: 67.0011 }, zoom: 12,
-        styles: darkMapStyles, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
+        styles: darkMapStyles, 
+        disableDefaultUI: true, // Turns off all default Google Maps controls
       });
       mapInstance.current = map;
       const tl = new google.maps.TrafficLayer();
@@ -422,8 +423,8 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
           </div>
           )}
 
-          {/* Incident Legend — bottom-left, panel opens upward */}
-          <div className="absolute bottom-3 left-3 z-10 flex flex-col-reverse items-start gap-1.5">
+          {/* Incident Legend — bottom-left, panel opens upward (shifted up to clear Google Logo) */}
+          <div className="absolute bottom-8 left-3 z-10 flex flex-col-reverse items-start gap-1.5">
 
             {/* Toggle button */}
             <button
