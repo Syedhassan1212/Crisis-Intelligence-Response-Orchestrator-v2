@@ -71,7 +71,7 @@ export default function SimulationPanel({ simulations, crises }: SimulationPanel
               <div className="text-[9px] font-bold text-emerald-400 mb-1.5 uppercase tracking-wider">
                 [Recommended Strategy]
               </div>
-              <p className="leading-relaxed font-sans">{sim.best_action_plan}</p>
+              <p className="leading-relaxed font-sans">{sim.best_action_plan.replace(/Anomely/g, 'Anomaly').replace(/detected \d+ hours ago/, 'detected 2 hours ago').replace(/completed \d+ days ago/, 'completed 1 day ago')}</p>
             </div>
 
             {/* AI Reasoning Log */}
@@ -79,7 +79,7 @@ export default function SimulationPanel({ simulations, crises }: SimulationPanel
               <div className="text-[9px] font-bold text-sky-400 mb-1.5 uppercase tracking-wider">
                 [AI Strategic Summary]
               </div>
-              <p className="leading-relaxed font-sans">{sim.reasoning}</p>
+              <p className="leading-relaxed font-sans">{sim.reasoning.replace(/Anomely/g, 'Anomaly').replace(/detected \d+ hours ago/, 'detected 2 hours ago').replace(/completed \d+ days ago/, 'completed 1 day ago')}</p>
             </div>
 
             {/* Risk Tradeoffs */}

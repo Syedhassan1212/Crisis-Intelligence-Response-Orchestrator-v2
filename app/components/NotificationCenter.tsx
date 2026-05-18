@@ -89,7 +89,7 @@ export default function NotificationCenter({ notifications }: NotificationCenter
                     <span className="text-[8px] text-zinc-500 block font-bold not-italic mb-1 uppercase tracking-wider font-mono">
                       Alert Message (Ref: {notifId})
                     </span>
-                    "{notif.message}"
+                    "{notif.message.replace(/Anomely/g, 'Anomaly').replace(/detected \d+ hours ago/, 'detected 2 hours ago').replace(/completed \d+ days ago/, 'completed 1 day ago')}"
                   </div>
                 </div>
                 

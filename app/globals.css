@@ -18,12 +18,12 @@
   --radius-full: 0.75rem;
 
   /* Custom Font Families */
-  --font-display-lg: "Geist", sans-serif;
+  --font-display-lg: "Inter", sans-serif;
   --font-data-mono: "JetBrains Mono", monospace;
   --font-label-caps: "JetBrains Mono", monospace;
-  --font-body-sm: "Geist", sans-serif;
-  --font-body-xs: "Geist", sans-serif;
-  --font-headline-md: "Geist", sans-serif;
+  --font-body-sm: "Inter", sans-serif;
+  --font-body-xs: "Inter", sans-serif;
+  --font-headline-md: "Inter", sans-serif;
 
   /* Font Sizes */
   --text-display-lg: 30px;
@@ -33,71 +33,95 @@
   --text-body-xs: 12px;
   --text-headline-md: 20px;
 
-  /* Stitch Exact Color Palette Tokens */
-  --color-background: #10131a;
-  --color-surface: #10131a;
-  
-  --color-surface-dim: #10131a;
-  --color-surface-bright: #363941;
-  --color-surface-lowest: #0b0e15;
-  --color-surface-low: #191b23;
-  --color-surface-high: #272a31;
-  --color-surface-highest: #32353c;
-  
-  --color-surface-container: #1d2027;
-  --color-surface-container-low: #191b23;
-  --color-surface-container-high: #272a31;
-  --color-surface-container-highest: #32353c;
-  --color-surface-container-lowest: #0b0e15;
+  /* ═══ Zinc-Dark Desaturated Palette ═══ */
+  --color-background: #09090b;
+  --color-surface: #09090b;
 
-  --color-on-surface: #e1e2ec;
-  --color-on-surface-variant: #c2c6d6;
-  --color-on-background: #e1e2ec;
-  --color-inverse-surface: #e1e2ec;
-  --color-inverse-on-surface: #2e3038;
+  --color-surface-dim: #09090b;
+  --color-surface-bright: #39393b;
+  --color-surface-lowest: #09090b;
+  --color-surface-low: #121214;
+  --color-surface-high: #2a2a2c;
+  --color-surface-highest: #353437;
 
-  --color-primary: #adc6ff;
-  --color-on-primary: #002e6a;
-  --color-primary-container: #4d8eff;
-  --color-on-primary-container: #00285d;
-  --color-primary-fixed: #d8e2ff;
-  --color-primary-fixed-dim: #adc6ff;
-  --color-on-primary-fixed: #001a42;
-  --color-on-primary-fixed-variant: #004395;
-  --color-surface-tint: #adc6ff;
-  --color-inverse-primary: #005ac2;
+  --color-surface-container: #121214;
+  --color-surface-container-low: #0e0e10;
+  --color-surface-container-high: #1c1b1d;
+  --color-surface-container-highest: #27272a;
+  --color-surface-container-lowest: #09090b;
 
-  --color-secondary: #c6c5cf;
-  --color-on-secondary: #2f3038;
-  --color-secondary-container: #4a4b53;
-  --color-on-secondary-container: #bcbbc5;
-  --color-secondary-fixed: #e3e1ec;
-  --color-secondary-fixed-dim: #c6c5cf;
-  --color-on-secondary-fixed: #1a1b22;
-  --color-on-secondary-fixed-variant: #46464e;
+  --color-on-surface: #e5e1e4;
+  --color-on-surface-variant: #a1a1aa;
+  --color-on-background: #e5e1e4;
+  --color-inverse-surface: #e5e1e4;
+  --color-inverse-on-surface: #313032;
 
-  --color-tertiary: #ffb786;
-  --color-on-tertiary: #502400;
-  --color-tertiary-container: #df7412;
-  --color-on-tertiary-container: #461f00;
-  --color-tertiary-fixed: #ffdcc6;
-  --color-tertiary-fixed-dim: #ffb786;
-  --color-on-tertiary-fixed: #311400;
-  --color-on-tertiary-fixed-variant: #723600;
+  /* Primary: Tactical Neon Green */
+  --color-primary: #4be277;
+  --color-on-primary: #003915;
+  --color-primary-container: #22c55e;
+  --color-on-primary-container: #004b1e;
+  --color-primary-fixed: #6bff8f;
+  --color-primary-fixed-dim: #4ae176;
+  --color-on-primary-fixed: #002109;
+  --color-on-primary-fixed-variant: #005321;
+  --color-surface-tint: #4ae176;
+  --color-inverse-primary: #006e2f;
+
+  /* Secondary: High-Alert Amber */
+  --color-secondary: #ffb95f;
+  --color-on-secondary: #472a00;
+  --color-secondary-container: #ee9800;
+  --color-on-secondary-container: #5b3800;
+  --color-secondary-fixed: #ffddb8;
+  --color-secondary-fixed-dim: #ffb95f;
+  --color-on-secondary-fixed: #2a1700;
+  --color-on-secondary-fixed-variant: #653e00;
+
+  /* Tertiary: Critical Red */
+  --color-tertiary: #ffb4ae;
+  --color-on-tertiary: #68000a;
+  --color-tertiary-container: #ff8a83;
+  --color-on-tertiary-container: #860011;
+  --color-tertiary-fixed: #ffdad7;
+  --color-tertiary-fixed-dim: #ffb3ad;
+  --color-on-tertiary-fixed: #410004;
+  --color-on-tertiary-fixed-variant: #930013;
 
   --color-error: #ffb4ab;
   --color-on-error: #690005;
   --color-error-container: #93000a;
   --color-on-error-container: #ffdad6;
 
-  --color-outline: #8c909f;
-  --color-outline-variant: #424754;
+  --color-outline: #71717a;
+  --color-outline-variant: #27272a;
 }
 
 @layer base {
   body {
     @apply bg-background text-on-surface font-body-sm antialiased selection:bg-primary/30 selection:text-primary;
     overflow: hidden;
+    scrollbar-color: #3f3f46 transparent;
+    scrollbar-width: thin;
+  }
+
+  /* Dark scrollbars globally */
+  *::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: #3f3f46;
+    border-radius: 9999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: #52525b;
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
 
@@ -105,15 +129,15 @@
   .glass-panel {
     @apply bg-surface-lowest/20 backdrop-blur-md border border-outline-variant/30;
   }
-  
+
   .custom-scrollbar::-webkit-scrollbar {
     width: 4px;
   }
-  
+
   .custom-scrollbar::-webkit-scrollbar-track {
     @apply bg-transparent;
   }
-  
+
   .custom-scrollbar::-webkit-scrollbar-thumb {
     @apply bg-outline-variant/30 rounded-full hover:bg-outline-variant/50 transition-colors;
   }
@@ -131,7 +155,7 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(to bottom, transparent, rgba(173, 198, 255, 0.1), transparent);
+  background: linear-gradient(to bottom, transparent, rgba(74, 225, 118, 0.06), transparent);
   animation: scan-line 8s linear infinite;
   pointer-events: none;
   z-index: 100;
@@ -148,12 +172,15 @@
   animation: pulse-emerald 2s infinite;
 }
 
-/* ── Compatibility selectors with legacy components ── */
+/* ── Zinc-Dark Component Tokens ── */
 .hud-panel {
   @apply bg-surface-container border border-outline-variant rounded-lg transition-all duration-150;
 }
 .hud-panel:hover {
   @apply border-outline;
+}
+.hud-panel-danger {
+  @apply bg-surface-container border border-error/25 rounded-lg transition-all duration-150;
 }
 .telemetry-bar {
   @apply h-1 bg-surface-container-highest rounded-full overflow-hidden relative;
@@ -172,6 +199,9 @@
 }
 .tag-medium {
   @apply bg-secondary-container text-on-surface border-outline-variant;
+}
+.tag-low {
+  @apply bg-surface-container text-on-surface-variant border-outline-variant;
 }
 .tag-secure {
   @apply bg-emerald-500/10 text-emerald-400 border-emerald-500/25;

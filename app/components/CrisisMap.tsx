@@ -9,6 +9,14 @@ interface CrisisMapProps {
   trafficActions: TrafficAction[];
   signals: FusedSignal[];
   onManualDispatch?: (updatedState: any) => void;
+  // Tab control — owned by CrisisMap as structural header
+  activeTab?: 'map' | 'timeline' | 'trace';
+  onTabChange?: (tab: 'map' | 'timeline' | 'trace') => void;
+  // Panel visibility toggles
+  leftOpen?: boolean;
+  rightOpen?: boolean;
+  onToggleLeft?: () => void;
+  onToggleRight?: () => void;
 }
 
 const CRISIS_ICONS: Record<string, string> = {
@@ -62,7 +70,7 @@ interface MovingResource {
   polyline?: google.maps.Polyline;   // Dashboard route line
 }
 
-export default function CrisisMap({ crises, resources, trafficActions, signals, onManualDispatch }: CrisisMapProps) {
+export default function CrisisMap({ crises, resources, trafficActions, signals, onManualDispatch, activeTab = 'map', onTabChange, leftOpen, rightOpen, onToggleLeft, onToggleRight }: CrisisMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<google.maps.Map | null>(null);
   const crisisMarkers = useRef<google.maps.Marker[]>([]);
@@ -77,6 +85,7 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
   const [showTraffic, setShowTraffic] = useState(true);
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [etaDisplay, setEtaDisplay] = useState<Record<string, number>>({});
+  const [legendOpen, setLegendOpen] = useState(false);
 
   // ── Map init ────────────────────────────────────────────────
   useEffect(() => {
@@ -103,7 +112,8 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
     try {
       const map = new google.maps.Map(mapRef.current, {
         center: { lat: 24.8607, lng: 67.0011 }, zoom: 12,
-        styles: darkMapStyles, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
+        styles: darkMapStyles, 
+        disableDefaultUI: true, // Turns off all default Google Maps controls
       });
       mapInstance.current = map;
       const tl = new google.maps.TrafficLayer();
@@ -153,7 +163,7 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
 
     for (const unit of idleUnits) {
       if (!unit.lat || !unit.lng) continue;
-      const col = '#475569'; // High-tech slate grey for standby hub resources
+      const col = '#52525b'; // Zinc-600 for standby hub resources
 
       const marker = new google.maps.Marker({
         map, position: { lat: unit.lat, lng: unit.lng },
@@ -365,37 +375,24 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
   const dispatchedUnits = resources.filter(r => r.status === 'dispatched' || r.status === 'en_route' || r.status === 'on_scene');
 
     return (
-      <div className="relative w-full h-full" style={{ background: '#09090b' }}>
-        
-        {/* Map command overlay controls */}
-        <div className="absolute top-3 right-3 z-10 flex flex-col gap-2 select-none font-sans">
-          <button onClick={() => setShowTraffic(v => !v)} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider backdrop-blur-md transition-all border ${showTraffic ? 'bg-zinc-800 text-white border-zinc-700' : 'bg-zinc-900/90 text-zinc-400 border-zinc-800'}`}>🚦 Traffic Layer</button>
-          <button onClick={() => { mapInstance.current?.setCenter({ lat: 24.8607, lng: 67.0011 }); mapInstance.current?.setZoom(12); }} className="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-[#09090b]/90 text-zinc-300 border border-zinc-800 hover:text-white hover:border-zinc-700 backdrop-blur-md transition-all">🎯 Recenter Map</button>
-        </div>
-  
-        {/* Roadblocks logs overlay */}
-        {trafficActions.filter(a => a.action === 'block').length > 0 && (
-          <div className="absolute top-3 left-3 z-10 p-3.5 max-w-xs bg-zinc-950/95 border border-red-500/30 rounded-lg font-sans shadow-lg">
-            <div className="text-[10px] font-bold text-red-400 mb-2 tracking-wider flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              <span>🚫 Active Roadblocks ({trafficActions.filter(a => a.action === 'block').length})</span>
-            </div>
-            <div className="space-y-2 pr-1 max-h-48 overflow-y-auto">
-              {trafficActions.filter(a => a.action === 'block').map((ta, i) => (
-                <div key={i} className="text-[9.5px] text-zinc-300 border-b border-zinc-800/60 pb-1.5 last:border-0 last:pb-0">
-                  <span className="text-red-400 font-semibold">● Closed Area:</span> {ta.area}
-                  {ta.alternative_route && <span className="text-emerald-400 block mt-0.5 font-semibold">↳ Detour: {ta.alternative_route}</span>}
-                </div>
-              ))}
-            </div>
+      <div className="flex flex-col w-full h-full" style={{ background: '#111113' }}>
+        {/* ── MAP AREA — fills remaining height ── */}
+        <div className="relative flex-1 min-h-0" style={{ background: '#111113' }}>
+
+          {/* Google Maps base layer */}
+          <div ref={mapRef} className="absolute inset-0" />
+
+          {/* Map command overlay controls */}
+          <div className="absolute top-3 right-3 z-10 flex flex-col gap-2 select-none font-sans">
+            <button onClick={() => setShowTraffic(v => !v)} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider backdrop-blur-md transition-all border ${showTraffic ? 'bg-[#121214] text-white border-zinc-700' : 'bg-[#09090b]/90 text-zinc-400 border-[#27272a]'}`}>🚦 Traffic</button>
+            <button onClick={() => { mapInstance.current?.setCenter({ lat: 24.8607, lng: 67.0011 }); mapInstance.current?.setZoom(12); }} className="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-[#09090b]/90 text-zinc-300 border border-[#27272a] hover:text-white hover:border-zinc-700 backdrop-blur-md transition-all">🎯 Recenter</button>
           </div>
-        )}
-  
-        {/* Deployed operational assets widget */}
-        {dispatchedUnits.length > 0 && (
-          <div className="absolute bottom-3 right-3 z-10 hud-panel p-3.5 max-w-[240px] space-y-2.5 bg-zinc-950/95 border-zinc-800 rounded-lg shadow-lg">
-            <div className="text-[9.5px] font-bold text-zinc-300 tracking-wider flex items-center gap-2 border-b border-zinc-800 pb-1.5 uppercase select-none font-sans">
-              <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-ping" />
+
+          {/* Deployed operational assets widget */}
+          {dispatchedUnits.length > 0 && (
+          <div className="absolute bottom-3 right-3 z-10 hud-panel p-3.5 max-w-[240px] space-y-2.5 bg-[#121214]/95 border-[#27272a] rounded-lg shadow-lg">
+            <div className="text-[9.5px] font-bold text-zinc-300 tracking-wider flex items-center gap-2 border-b border-[#27272a] pb-1.5 uppercase select-none font-sans">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
               <span>Active Deployments</span>
             </div>
             <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
@@ -405,7 +402,7 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
                 const col = RESOURCE_COLORS[u.type] || '#ffaa00';
                 const sectorTarget = u.assigned_crisis_id ? `ID-${u.assigned_crisis_id.slice(0, 4).toUpperCase()}` : 'STANDBY';
                 return (
-                  <div key={u.id} className={`flex items-center gap-2.5 p-1.5 rounded cursor-pointer transition-all border border-zinc-800/20 ${selectedUnit === u.id ? 'bg-zinc-800 text-zinc-200 border-zinc-700' : 'bg-zinc-900/40 hover:border-zinc-800'}`} onClick={() => setSelectedUnit(u.id)}>
+                  <div key={u.id} className={`flex items-center gap-2.5 p-1.5 rounded cursor-pointer transition-all border ${selectedUnit === u.id ? 'bg-[#121214] text-zinc-200 border-zinc-700' : 'bg-[#09090b]/40 border-[#27272a]/20 hover:border-[#27272a]'}`} onClick={() => setSelectedUnit(u.id)}>
                     <span className="text-base">{RESOURCE_EMOJIS[u.type]}</span>
                     <div className="flex-1 min-w-0 font-sans">
                       <div className="text-[9px] text-zinc-200 font-bold truncate uppercase">{u.id.replace('ambulance', 'AMB').replace('police', 'POL').replace('fire_unit', 'FIR').replace('rescue', 'RSC').replace('utility', 'UTL')}</div>
@@ -424,39 +421,73 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
               })}
             </div>
           </div>
-        )}
-  
-        {/* Incident legend card */}
-        <div className="absolute bottom-3 left-3 z-10 hud-panel p-3.5 space-y-2.5 bg-zinc-950/95 max-w-[200px] border-zinc-800 rounded-lg shadow-lg">
-          <div className="text-[9.5px] font-bold text-zinc-500 border-b border-zinc-800 pb-1.5 uppercase select-none tracking-wider font-sans">Incident Legend</div>
-          <div className="space-y-1.5 font-sans">
-            {Object.entries(SEVERITY_COLORS).map(([s, col]) => (
-              <div key={s} className="flex items-center gap-2 text-[9.5px]">
-                <span className="w-2 h-2 rounded-sm" style={{ background: col, border: '1px solid rgba(255,255,255,0.2)' }} />
-                <span className="text-zinc-400 font-semibold">{s}</span>
+          )}
+
+          {/* Incident Legend — bottom-left, panel opens upward (shifted up to clear Google Logo) */}
+          <div className="absolute bottom-8 left-3 z-10 flex flex-col-reverse items-start gap-1.5">
+
+            {/* Toggle button */}
+            <button
+              onClick={() => setLegendOpen(v => !v)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded bg-[#1a1a1d]/95 border border-[#2e2e32] text-zinc-300 text-[12px] font-medium hover:bg-[#222226] hover:text-white transition-all shadow-xl backdrop-blur-sm cursor-pointer select-none"
+            >
+              <span>Incident Legend</span>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className={`transition-transform ${legendOpen ? 'rotate-180' : ''}`}>
+                <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+
+            {/* Panel — rendered above button via flex-col-reverse */}
+            {legendOpen && (
+              <div className="bg-[#1a1a1d]/98 border border-[#2e2e32] rounded-lg shadow-2xl p-4 w-[190px] backdrop-blur-sm">
+
+                {/* Severity rows */}
+                <div className="space-y-2 mb-3">
+                  {[
+                    { label: 'CRITICAL (Red)',    color: '#ef4444' },
+                    { label: 'HIGH (Amber)',       color: '#f59e0b' },
+                    { label: 'MEDIUM (Yellow)',    color: '#eab308' },
+                    { label: 'LOW (Green)',        color: '#22c55e' },
+                  ].map(({ label, color }) => (
+                    <div key={label} className="flex items-center gap-2.5">
+                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: color }} />
+                      <span className="text-[11px] text-zinc-300 font-medium">{label}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-3 h-3 rounded-full flex-shrink-0 bg-zinc-500 opacity-70" />
+                    <span className="text-[11px] text-zinc-300 font-medium">Standby Unit</span>
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-[#2e2e32] my-2.5" />
+
+                {/* Resource type rows */}
+                <div className="space-y-2">
+                  {[
+                    { icon: '🚑', label: 'Ambulance' },
+                    { icon: '👮', label: 'Police' },
+                    { icon: '🔥', label: 'Fire Unit' },
+                    { icon: '🚁', label: 'Rescue' },
+                    { icon: '🔧', label: 'Utility' },
+                  ].map(({ icon, label }) => (
+                    <div key={label} className="flex items-center gap-2.5">
+                      <span className="text-[12px] w-4 text-center">{icon}</span>
+                      <span className="text-[11px] text-zinc-300 font-medium">{label}</span>
+                    </div>
+                  ))}
+                </div>
+
               </div>
-            ))}
-            <div className="flex items-center gap-2 text-[9.5px]">
-              <span className="w-2 h-2 rounded-sm bg-zinc-600 opacity-60 border border-zinc-500" />
-              <span className="text-zinc-400 font-semibold">Standby Unit</span>
-            </div>
-          </div>
-          <div className="border-t border-zinc-800 pt-2 space-y-1.5 select-none font-sans">
-            {Object.entries(RESOURCE_EMOJIS).map(([type, icon]) => (
-              <div key={type} className="flex items-center gap-2 text-[9.5px] font-semibold text-zinc-500">
-                <span>{icon}</span>
-                <span className="capitalize">{type.replace('_', ' ')}</span>
-              </div>
-            ))}
-          </div>
+            )}
+          </div>{/* end legend */}
+
+          {/* Offline Vector Map Fallback Grid */}
+          {mapError && <SvgMapFallback crises={crises} resources={resources} etaDisplay={etaDisplay} />}
+
         </div>
-
-      {/* Google Maps div */}
-      <div ref={mapRef} className="w-full h-full" />
-
-      {/* Offline Vector Map Fallback Grid */}
-      {mapError && <SvgMapFallback crises={crises} resources={resources} etaDisplay={etaDisplay} />}
-    </div>
+      </div>
   );
 }
 
@@ -469,105 +500,150 @@ function SvgMapFallback({ crises, resources, etaDisplay }: { crises: CrisisEvent
   }, []);
 
   const active = crises.filter(c => c.status === 'active');
-  const dispatched = resources.filter(r => r.status === 'dispatched' || r.status === 'on_scene');
+  const dispatched = resources.filter(r => r.status === 'dispatched' || r.status === 'en_route' || r.status === 'on_scene');
 
-  const crisisPositions = active.slice(0, 6).map((_, i) => ({ x: 80 + (i % 3) * 110, y: 70 + Math.floor(i / 3) * 100 }));
-  const unitPositions = dispatched.slice(0, 6).map((u, i) => {
-    const cIdx = active.findIndex(c => c.id === u.assigned_crisis_id);
-    const target = cIdx >= 0 ? crisisPositions[cIdx] : { x: 200, y: 130 };
-    const start = { x: 30 + i * 55, y: 200 };
-    const prog = Math.min(1, (tick * 200) / ((u.eta_minutes || 12) * 60 * 1000 / 10));
-    return { x: lerp(start.x, target.x, prog), y: lerp(start.y, target.y, prog), unit: u, prog };
+  // Map bounds for Karachi (lat: 24.78-24.95, lng: 66.90-67.12)
+  const MAP_LAT_MIN = 24.78, MAP_LAT_MAX = 24.96;
+  const MAP_LNG_MIN = 66.88, MAP_LNG_MAX = 67.14;
+
+  function toSvg(lat: number, lng: number, W: number, H: number): [number, number] {
+    const x = ((lng - MAP_LNG_MIN) / (MAP_LNG_MAX - MAP_LNG_MIN)) * W;
+    const y = H - ((lat - MAP_LAT_MIN) / (MAP_LAT_MAX - MAP_LAT_MIN)) * H;
+    return [Math.round(x), Math.round(y)];
+  }
+
+  // Derive positions from actual lat/lng or fallback grid
+  const FALLBACK_GRID: [number, number][] = [
+    [24.8607, 67.0011], [24.9200, 66.9900], [24.8400, 67.0500],
+    [24.8900, 67.0300], [24.8700, 66.9600], [24.9050, 67.0800],
+  ];
+
+  const crisisPositions = active.slice(0, 6).map((c, i) => {
+    const lat = c.lat ?? FALLBACK_GRID[i % FALLBACK_GRID.length][0];
+    const lng = c.lng ?? FALLBACK_GRID[i % FALLBACK_GRID.length][1];
+    return { c, lat, lng };
   });
 
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-start bg-[#09090b] p-4 overflow-auto font-sans">
-      <div className="text-[10px] text-zinc-400 mb-2 text-center uppercase tracking-wider font-semibold flex items-center gap-1.5">
-        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
-        <span>📍 Offline Incident Grid (Satellite Link Active)</span>
-      </div>
-      <div className="w-full max-w-lg">
-        <svg viewBox="0 0 400 280" className="w-full rounded border border-zinc-800" style={{ background: '#09090b' }}>
-          {/* Subtle Grid lines */}
-          {[60,120,180,240,300,360].map(x => <line key={x} x1={x} y1="0" x2={x} y2="280" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5"/>)}
-          {[40,80,120,160,200,240].map(y => <line key={y} x1="0" y1={y} x2="400" y2={y} stroke="rgba(255,255,255,0.03)" strokeWidth="0.5"/>)}
-          {/* Radar Circles */}
-          <circle cx="200" cy="140" r="50" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="1" strokeDasharray="3,3" />
-          <circle cx="200" cy="140" r="100" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="1" />
-          {/* Shoreline */}
-          <rect x="0" y="240" width="400" height="40" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
-          <text x="200" y="262" textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="8" fontWeight="bold" letterSpacing="0.1em">Arabian Sea Sector</text>
-          
-          {/* Radar validated objectives */}
-          {active.slice(0, 6).map((c, i) => {
-            const pos = crisisPositions[i];
-            const col = SEVERITY_COLORS[c.severity] || '#64748b';
-            const pulse = Math.sin(tick * 0.4 + i) > 0;
-            const targetId = c.id.slice(0, 4).toUpperCase();
-            return (
-              <g key={c.id}>
-                {/* Locking Bracket indicators */}
-                <circle cx={pos.x} cy={pos.y} r={pulse ? 18 : 15} fill="none" stroke={col} opacity="0.4" strokeWidth="0.8" strokeDasharray="4,4"/>
-                <circle cx={pos.x} cy={pos.y} r="8" fill={col} opacity="0.8" stroke="#ffffff" strokeWidth="1.2"/>
-                <text x={pos.x} y={pos.y+3} textAnchor="middle" fontSize="9" fill="white">{CRISIS_ICONS[c.type]}</text>
-                
-                {/* Target Locks Coordinates */}
-                <text x={pos.x} y={pos.y+20} textAnchor="middle" fontSize="6.5" fill="#cbd5e1" fontWeight="bold">ID-{targetId}</text>
-                <text x={pos.x+10} y={pos.y-8} fontSize="5.5" fill={col} fontWeight="bold">{c.severity}</text>
-              </g>
-            );
-          })}
-          
-          {/* Active units telemetry march */}
-          {unitPositions.map(({ x, y, unit, prog }) => {
-            const col = RESOURCE_COLORS[unit.type] || '#ffaa00';
-            const eta = etaDisplay[unit.id];
-            const arrived = prog >= 1;
-            return (
-              <g key={unit.id}>
-                <circle cx={x} cy={y} r={arrived ? 8 : 6.5} fill={arrived ? '#10b981' : col} opacity="0.95" stroke="#ffffff" strokeWidth="1.2"/>
-                <text x={x} y={y+2} textAnchor="middle" fontSize="6.5">{RESOURCE_EMOJIS[unit.type]}</text>
-                {eta !== undefined && eta > 0 && (
-                  <text x={x} y={y-10} textAnchor="middle" fontSize="6" fill={col} fontWeight="bold">{eta}m ETA</text>
-                )}
-                {arrived && <text x={x} y={y-10} textAnchor="middle" fontSize="5.5" fill="#10b981" fontWeight="bold">On Scene</text>}
-              </g>
-            );
-          })}
-          
-          {/* Marched vector routes */}
-          {unitPositions.map(({ x, y, unit, prog }, i) => {
-            const cIdx = active.findIndex(c => c.id === unit.assigned_crisis_id);
-            if (cIdx < 0) return null;
-            const target = crisisPositions[cIdx];
-            return (
-              <line key={`route-${i}`} x1={x} y1={y} x2={target.x} y2={target.y}
-                stroke="#475569" strokeWidth="1" strokeDasharray="2,3" opacity="0.6"/>
-            );
-          })}
-        </svg>
+  const UNIT_STARTS: [number, number][] = [
+    [24.830, 66.970], [24.810, 67.020], [24.860, 66.940],
+    [24.900, 67.050], [24.940, 66.980], [24.820, 67.080],
+  ];
 
-        {/* Dynamic status list */}
-        <div className="mt-3 grid grid-cols-2 gap-2.5">
-          {dispatched.slice(0, 6).map(u => {
-            const eta = etaDisplay[u.id];
-            return (
-              <div key={u.id} className="flex items-center gap-2.5 p-2 rounded border border-zinc-800 bg-[#09090b] text-[9.5px]">
-                <span>{RESOURCE_EMOJIS[u.type]}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-zinc-200 font-bold truncate uppercase">{u.id.replace('ambulance', 'AMB').replace('police', 'POL').replace('fire_unit', 'FIR').replace('rescue', 'RSC').replace('utility', 'UTL')}</div>
-                  <div className="telemetry-bar mt-1.5">
-                    <div className="telemetry-fill" style={{ width: `${Math.min(100, (1 - (eta || 0) / (u.eta_minutes || 12)) * 100)}%`, background: RESOURCE_COLORS[u.type] }}/>
-                  </div>
-                </div>
-                <span className="text-[9.5px] font-bold flex-shrink-0" style={{ color: RESOURCE_COLORS[u.type] }}>
-                  {eta === 0 ? 'On Scene' : `${eta ?? '?'}m`}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+  const unitPositions = dispatched.slice(0, 6).map((u, i) => {
+    const cItem = crisisPositions.find(cp => cp.c.id === u.assigned_crisis_id);
+    const targetLat = cItem?.lat ?? FALLBACK_GRID[0][0];
+    const targetLng = cItem?.lng ?? FALLBACK_GRID[0][1];
+    const startLat = UNIT_STARTS[i % UNIT_STARTS.length][0];
+    const startLng = UNIT_STARTS[i % UNIT_STARTS.length][1];
+    const prog = Math.min(1, (tick * 0.004) / (u.eta_minutes || 12));
+    return {
+      lat: lerp(startLat, targetLat, prog),
+      lng: lerp(startLng, targetLng, prog),
+      startLat, startLng, targetLat, targetLng,
+      unit: u, prog,
+    };
+  });
+
+  const W = 800, H = 520;
+
+  // Street grid lines (approximating Karachi road network)
+  const H_ROADS = [24.800, 24.820, 24.840, 24.860, 24.880, 24.900, 24.920, 24.940];
+  const V_ROADS = [66.910, 66.940, 66.970, 67.000, 67.030, 67.060, 67.090, 67.120];
+
+  return (
+    <div className="absolute inset-0 overflow-hidden" style={{ background: '#111113' }}>
+      {/* Status banner */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 rounded bg-[#1a1a1d]/90 border border-[#27272a] text-[10px] text-zinc-400 font-mono select-none">
+        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping flex-shrink-0" />
+        <span>📍 OFFLINE INCIDENT GRID (SATELLITE LINK ACTIVE)</span>
       </div>
+
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%" height="100%"
+        preserveAspectRatio="xMidYMid slice"
+        style={{ display: 'block' }}
+      >
+        {/* Dark background */}
+        <rect width={W} height={H} fill="#111113" />
+
+        {/* Water / sea area at bottom */}
+        <rect x={0} y={H * 0.82} width={W} height={H * 0.18} fill="#0d1117" />
+        <text x={W / 2} y={H * 0.91} textAnchor="middle" fill="rgba(255,255,255,0.12)" fontSize="11" fontWeight="bold" letterSpacing="0.15em">Arabian Sea Sector</text>
+
+        {/* Horizontal road grid */}
+        {H_ROADS.map(lat => {
+          const [, y] = toSvg(lat, MAP_LNG_MIN, W, H);
+          return <line key={`h${lat}`} x1={0} y1={y} x2={W} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="0.8" />;
+        })}
+
+        {/* Vertical road grid */}
+        {V_ROADS.map(lng => {
+          const [x] = toSvg(MAP_LAT_MIN, lng, W, H);
+          return <line key={`v${lng}`} x1={x} y1={0} x2={x} y2={H} stroke="rgba(255,255,255,0.07)" strokeWidth="0.8" />;
+        })}
+
+        {/* Major roads */}
+        {[24.860, 24.900].map(lat => {
+          const [, y] = toSvg(lat, MAP_LNG_MIN, W, H);
+          return <line key={`mh${lat}`} x1={0} y1={y} x2={W} y2={y} stroke="rgba(255,255,255,0.13)" strokeWidth="1.5" />;
+        })}
+        {[67.000, 66.960].map(lng => {
+          const [x] = toSvg(MAP_LAT_MIN, lng, W, H);
+          return <line key={`mv${lng}`} x1={x} y1={0} x2={x} y2={H} stroke="rgba(255,255,255,0.13)" strokeWidth="1.5" />;
+        })}
+
+        {/* Route lines from units to their targets */}
+        {unitPositions.map(({ lat, lng, targetLat, targetLng, unit }, i) => {
+          const [ux, uy] = toSvg(lat, lng, W, H);
+          const [tx, ty] = toSvg(targetLat, targetLng, W, H);
+          const col = RESOURCE_COLORS[unit.type] || '#ffaa00';
+          return (
+            <line key={`route-${i}`} x1={ux} y1={uy} x2={tx} y2={ty}
+              stroke={col} strokeWidth="1.2" strokeDasharray="5,4" opacity="0.55" />
+          );
+        })}
+
+        {/* Crisis incident markers */}
+        {crisisPositions.map(({ c, lat, lng }, i) => {
+          const [x, y] = toSvg(lat, lng, W, H);
+          const col = SEVERITY_COLORS[c.severity] || '#64748b';
+          const pulsing = Math.sin(tick * 0.35 + i) > 0;
+          const targetId = c.id.slice(0, 4).toUpperCase();
+          const r1 = c.severity === 'CRITICAL' ? 22 : c.severity === 'HIGH' ? 18 : 14;
+          const r2 = c.severity === 'CRITICAL' ? 11 : c.severity === 'HIGH' ? 9 : 7;
+          return (
+            <g key={c.id}>
+              <circle cx={x} cy={y} r={pulsing ? r1 + 4 : r1} fill="none" stroke={col} opacity="0.35" strokeWidth="1" strokeDasharray="5,4" />
+              <circle cx={x} cy={y} r={r1} fill="none" stroke={col} opacity="0.5" strokeWidth="0.8" />
+              <circle cx={x} cy={y} r={r2} fill={col} opacity="0.9" />
+              <circle cx={x} cy={y} r={r2} fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="1.2" />
+              <text x={x + 14} y={y - r2 - 2} fontSize="7" fill={col} fontWeight="bold" fontFamily="monospace">{c.severity}</text>
+              <text x={x} y={y + r2 + 10} textAnchor="middle" fontSize="7.5" fill="#cbd5e1" fontWeight="bold" fontFamily="monospace">ID-{targetId}</text>
+              <line x1={x - r1 - 4} y1={y} x2={x - r2 - 2} y2={y} stroke={col} strokeWidth="0.8" opacity="0.6" />
+              <line x1={x + r2 + 2} y1={y} x2={x + r1 + 4} y2={y} stroke={col} strokeWidth="0.8" opacity="0.6" />
+            </g>
+          );
+        })}
+
+        {/* Dispatched unit markers */}
+        {unitPositions.map(({ lat, lng, unit, prog }) => {
+          const [x, y] = toSvg(lat, lng, W, H);
+          const col = RESOURCE_COLORS[unit.type] || '#ffaa00';
+          const eta = etaDisplay[unit.id];
+          const arrived = prog >= 1;
+          return (
+            <g key={unit.id}>
+              <circle cx={x} cy={y} r={7} fill={arrived ? '#10b981' : '#1a1a1d'} stroke={arrived ? '#10b981' : col} strokeWidth="1.5" opacity="0.95" />
+              <text x={x} y={y + 3} textAnchor="middle" fontSize="7">{RESOURCE_EMOJIS[unit.type]}</text>
+              {eta !== undefined && eta > 0 && (
+                <text x={x} y={y - 11} textAnchor="middle" fontSize="6.5" fill={col} fontWeight="bold" fontFamily="monospace">{eta}m ETA</text>
+              )}
+              {arrived && <text x={x} y={y - 11} textAnchor="middle" fontSize="6" fill="#10b981" fontWeight="bold">On Scene</text>}
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }

@@ -74,13 +74,20 @@ export default function TimelineFeed({ signals, crises, cycle }: TimelineFeedPro
 
       <div className="relative">
         {/* Timeline trace line */}
-        {events.length > 0 && <div className="absolute left-5 top-0 bottom-0 w-px bg-zinc-800" />}
+        {events.length > 0 && <div className="absolute left-4 top-0 bottom-0 w-[1px] bg-zinc-800" />}
 
         <div className="space-y-4">
           {events.map(event => {
             const isCrisis = event.type === 'crisis';
-            const cardPnl = 'hud-panel'; // Pure modern Shadcn card borders
+            const isRetracted = event.title.includes('RETRACTED') || event.title.includes('retracted') || event.detail.includes('RETRACTED');
+            const isDispatched = event.title.includes('DISPATCH') || event.detail.includes('dispatched') || event.title.includes('Dispatch');
+            const isAgentDeliberation = event.title.includes('AGENT') || event.detail.includes('deliberation') || event.detail.includes('Agent');
+            const borderAlertClass = isDispatched ? 'border-l-2 border-l-emerald-500' : isAgentDeliberation ? 'border-l-2 border-l-amber-500' : 'border-zinc-800';
+            const opacityClass = isRetracted ? 'opacity-40' : 'opacity-100';
+            const cardPnl = `hud-panel ${borderAlertClass} ${opacityClass}`; // Pure modern Shadcn card borders
             const logId = event.id.slice(0, 5).toUpperCase();
+            const displayTitle = (isRetracted && !event.title.includes('[RETRACTED]')) ? '[RETRACTED] ' + event.title : event.title.replace('COMUNICATION', 'COMMUNICATION');
+            const displayDetail = event.detail.replace('COMUNICATION', 'COMMUNICATION');
             
             return (
               <div key={event.id} className="relative flex gap-4 group">
@@ -102,16 +109,16 @@ export default function TimelineFeed({ signals, crises, cycle }: TimelineFeedPro
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`tag-base ${SEVERITY_TAGS[event.severity]}`}>{event.severity}</span>
                         <span className="text-[10px] font-bold text-zinc-100 truncate">
-                          {event.title}
+                          {displayTitle}
                         </span>
                       </div>
                       
                       {/* Testimony block */}
-                      <p className="text-[10px] text-zinc-300 mt-2 bg-zinc-950 border border-zinc-800/80 p-2.5 rounded leading-relaxed">
+                      <p className="text-[10px] text-zinc-300 mt-2 bg-[#09090b] border border-[#27272a] p-2.5 rounded leading-relaxed">
                         <span className="text-[8px] text-zinc-500 block font-bold uppercase tracking-wider mb-1">
                           Source Text (Report Ref: {logId})
                         </span>
-                        "{event.detail}"
+                        "{displayDetail}"
                       </p>
                       
                       <div className="text-[8.5px] text-zinc-500 mt-2 font-medium">

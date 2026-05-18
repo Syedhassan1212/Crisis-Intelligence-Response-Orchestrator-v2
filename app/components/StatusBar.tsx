@@ -31,15 +31,15 @@ export default function StatusBar({ crises, resources, notifications }: StatusBa
     : 'System Operational Status Nominal  •  Awaiting Telemetry Grid Intercepts  •  Karachi Operations Zone Stable';
 
   return (
-    <div className="h-14 mt-16 bg-[#0b0e15] border-b border-zinc-800 flex items-center px-6 gap-6 relative z-30 select-none">
+    <div className="h-14 mt-16 bg-[#121214] border-b border-[#27272a] flex items-center px-6 gap-6 relative z-30 select-none">
       
       {/* 1. Left Telemetry Sections */}
-      <div className="flex items-center gap-6 border-r border-zinc-800 pr-6">
+      <div className="flex items-center gap-6 border-r border-[#27272a] pr-6">
         
         {/* Intercept Rate */}
         <div className="flex flex-col font-mono">
           <span className="text-[8px] font-semibold text-zinc-500 uppercase tracking-widest leading-none">INTERCEPT RATE</span>
-          <span className="text-[12px] font-bold text-sky-400 mt-1">{interceptRate} Intercepts/Min</span>
+          <span className="text-[12px] font-bold text-emerald-400 mt-1">{interceptRate} Intercepts/Min</span>
         </div>
 
         {/* Asset Load */}
@@ -55,9 +55,9 @@ export default function StatusBar({ crises, resources, notifications }: StatusBa
         <span className="text-[8px] font-mono font-semibold text-zinc-500 uppercase tracking-widest whitespace-nowrap">SYSTEM LOAD</span>
         
         {/* Progress Bar Container */}
-        <div className="w-32 h-1.5 bg-zinc-900 rounded-full overflow-hidden flex-shrink-0 border border-zinc-850">
+        <div className="w-32 h-1.5 bg-[#09090b] rounded-full overflow-hidden flex-shrink-0 border border-[#27272a]">
           <div 
-            className="h-full bg-sky-400 rounded-full transition-all duration-500 ease-in-out" 
+            className="h-full bg-emerald-400 rounded-full transition-all duration-500 ease-in-out" 
             style={{ width: `${systemLoadPercentage}%` }}
           />
         </div>
@@ -72,7 +72,7 @@ export default function StatusBar({ crises, resources, notifications }: StatusBa
       </div>
 
       {/* 3. Threat counters */}
-      <div className="flex items-center gap-2 pl-6 border-l border-zinc-800">
+      <div className="flex items-center gap-2 pl-6 border-l border-[#27272a]">
         <div className="flex gap-1.5 font-mono">
           <span className="px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded text-[9px] font-extrabold">
             {critical.length} CRITICAL
