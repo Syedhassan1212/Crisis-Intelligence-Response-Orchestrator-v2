@@ -77,6 +77,25 @@ export async function POST(request: Request) {
 
     logSuccess('RESOURCE_ALLOCATION', 'Orchestrator', 'MANUAL_DISPATCH_SUCCESS', `Successfully dispatched ${resourceId} manually to ${crisisId}`);
 
+    // Notify WebSocket server of manual dispatch
+    try {
+      const WebSocket = require('ws');
+      const wsUrl = process.env.WS_URL || process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3002';
+      const ws = new WebSocket(wsUrl);
+      ws.on('open', () => {
+        ws.send(JSON.stringify({
+          type: 'dispatch',
+          resourceId,
+          crisisId,
+          eta: 8
+        }));
+        setTimeout(() => ws.close(), 100);
+      });
+      ws.on('error', () => {});
+    } catch (wsErr) {
+      console.warn('[WS Dispatch Manual] Failed to notify WebSocket server:', wsErr);
+    }
+
     return NextResponse.json({ success: true, data: state });
   } catch (err) {
     logError('RESOURCE_ALLOCATION', 'Orchestrator', 'MANUAL_DISPATCH_ERROR', `Failed manual dispatch: ${err}`);

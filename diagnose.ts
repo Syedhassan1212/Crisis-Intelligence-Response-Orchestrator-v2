@@ -3,6 +3,7 @@
 // Verifies environment, network, databases, Gemini API, and Orchestrator
 // ============================================================
 
+import './lib/env-loader'; // Must be imported first to set env variables before other modules initialize!
 import path from 'path';
 import fs from 'fs';
 import axios from 'axios';
@@ -139,16 +140,69 @@ async function runDiagnosis() {
       
       // Test 1: gemini-2.5-flash (primary agents)
       const start = Date.now();
-      const flashModel = ai.getGenerativeModel({
-        model: 'gemini-2.5-flash',
-        generationConfig: { responseMimeType: 'application/json' }
-      });
-      const prompt = `Return a JSON object: {"ping":"pong","agent":"diagnostics"}`;
-      const result = await flashModel.generateContent(prompt);
-      const latency = Date.now() - start;
-      const text = result.response.text().trim();
-      console.log(`  - gemini-2.5-flash (Primary): \x1b[32m✔ Online\x1b[0m (${latency}ms) -> ${text}`);
-      report.push(`| gemini-2.5-flash | Crisis classification, Resource optimization, Alerts generation | 🟢 Online | ${latency}ms | \`${text}\` |`);
+      let text = '';
+      let latency = 0;
+      let modelOnline = false;
+      let lastErrMessage = '';
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const flashModel = ai.getGenerativeModel({
+            model: 'gemini-2.5-flash',
+            generationConfig: { responseMimeType: 'application/json' }
+          });
+          const prompt = `Return a JSON object: {"ping":"pong","agent":"diagnostics"}`;
+          const result = await flashModel.generateContent(prompt);
+          latency = Date.now() - start;
+          text = result.response.text().trim();
+          modelOnline = true;
+          break;
+        } catch (err: any) {
+          lastErrMessage = err.message || String(err);
+          if (attempt < 2) {
+            console.log(`  - gemini-2.5-flash (Primary): ⚠ Connection attempt ${attempt + 1} failed (${lastErrMessage}). Retrying...`);
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+      }
+
+      if (modelOnline) {
+        console.log(`  - gemini-2.5-flash (Primary): \x1b[32m✔ Online\x1b[0m (${latency}ms) -> ${text}`);
+        report.push(`| gemini-2.5-flash | Crisis classification, Resource optimization, Alerts generation | 🟢 Online | ${latency}ms | \`${text}\` |`);
+      } else {
+        // Try OpenRouter as fallback
+        const openrouterKey = process.env.OPENROUTER_API_KEY;
+        if (openrouterKey && openrouterKey !== 'your_openrouter_key_here') {
+          console.log(`  - gemini-2.5-flash (Primary): 🔴 Native failed. Checking OpenRouter fallback...`);
+          try {
+            const orStart = Date.now();
+            const response = await axios.post(
+              'https://openrouter.ai/api/v1/chat/completions',
+              {
+                model: process.env.OPENROUTER_MODEL || 'deepseek/deepseek-v4-flash:free',
+                messages: [{ role: 'user', content: 'Return a JSON object: {"ping":"pong","agent":"diagnostics"}' }],
+                response_format: { type: 'json_object' }
+              },
+              {
+                headers: { 'Authorization': `Bearer ${openrouterKey}` },
+                timeout: 10000
+              }
+            );
+            text = response.data.choices?.[0]?.message?.content?.trim() || '';
+            latency = Date.now() - orStart;
+            console.log(`  - gemini-2.5-flash (Fallback OpenRouter): \x1b[32m✔ Online\x1b[0m (${latency}ms) -> ${text}`);
+            report.push(`| gemini-2.5-flash | OpenRouter Fallback Model | 🟡 Offline (Using OpenRouter Fallback) | ${latency}ms | \`${text}\` |`);
+          } catch (orErr: any) {
+            geminiSuccess = false;
+            console.log(`  - gemini-2.5-flash (Primary & Fallback): \x1b[31m✗ Connection Failed\x1b[0m (Gemini: ${lastErrMessage}, OpenRouter: ${orErr.message})`);
+            report.push(`| gemini-2.5-flash | Multi-agent Orchestration | 🔴 Connection Failed | N/A | Gemini: ${lastErrMessage}. OpenRouter: ${orErr.message} |`);
+          }
+        } else {
+          geminiSuccess = false;
+          console.log(`  - gemini-2.5-flash (Primary): \x1b[31m✗ Connection Failed\x1b[0m (${lastErrMessage})`);
+          report.push(`| gemini-2.5-flash | Multi-agent Orchestration | 🔴 Connection Failed | N/A | Error: ${lastErrMessage} |`);
+        }
+      }
 
       // Test 2: gemma-4-26b-a4b-it fallback
       const startGemma = Date.now();

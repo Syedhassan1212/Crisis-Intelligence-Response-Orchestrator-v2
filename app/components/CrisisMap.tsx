@@ -220,7 +220,12 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
     const dispatched = resources.filter(r => r.status === 'dispatched' || r.status === 'en_route');
 
     for (const unit of dispatched) {
-      if (movingRefs.current.has(unit.id)) continue; // already animating
+      const existing = movingRefs.current.get(unit.id);
+      if (existing) {
+        // Maintain latest reference so animation/telemetry checks have fresh data
+        existing.unit = unit;
+        continue;
+      }
       const crisis = crises.find(c => c.id === unit.assigned_crisis_id && c.status === 'active');
       if (!unit.lat || !unit.lng) continue;
 
@@ -316,18 +321,31 @@ export default function CrisisMap({ crises, resources, trafficActions, signals, 
 
       for (const [id, mv] of movingRefs.current) {
         const elapsed = now - mv.startedAt;
-        mv.progress = Math.min(1, elapsed / mv.etaMs);
+        let lat: number = mv.startLat;
+        let lng: number = mv.startLng;
 
-        // Snap to road path steps if Directions route exists, otherwise straight line lerp
-        let lat = lerp(mv.startLat, mv.endLat, mv.progress);
-        let lng = lerp(mv.startLng, mv.endLng, mv.progress);
+        // If the latest props (via WebSocket) show coordinate shifts, snap the marker directly
+        if (mv.unit && mv.unit.lat !== undefined && mv.unit.lng !== undefined && (mv.unit.lat !== mv.startLat || mv.unit.lng !== mv.startLng)) {
+          lat = mv.unit.lat;
+          lng = mv.unit.lng;
+          
+          // Re-calculate local progress based on distance to destination for consistency
+          const totalDist = Math.hypot(mv.endLat - mv.startLat, mv.endLng - mv.startLng);
+          const remainingDist = Math.hypot(mv.endLat - lat, mv.endLng - lng);
+          mv.progress = totalDist > 0 ? Math.min(1, Math.max(0, 1 - (remainingDist / totalDist))) : 1;
+        } else {
+          // Standard simulated client-side animation fallback
+          mv.progress = Math.min(1, elapsed / mv.etaMs);
+          lat = lerp(mv.startLat, mv.endLat, mv.progress);
+          lng = lerp(mv.startLng, mv.endLng, mv.progress);
 
-        if (mv.routePath && mv.routePath.length > 0) {
-          const totalPoints = mv.routePath.length;
-          const pointIndex = Math.min(totalPoints - 1, Math.floor(mv.progress * totalPoints));
-          const coords = mv.routePath[pointIndex];
-          lat = coords.lat();
-          lng = coords.lng();
+          if (mv.routePath && mv.routePath.length > 0) {
+            const totalPoints = mv.routePath.length;
+            const pointIndex = Math.min(totalPoints - 1, Math.floor(mv.progress * totalPoints));
+            const coords = mv.routePath[pointIndex];
+            lat = coords.lat();
+            lng = coords.lng();
+          }
         }
 
         mv.marker?.setPosition({ lat, lng });

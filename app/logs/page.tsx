@@ -67,7 +67,7 @@ export default function LogsPage() {
   const [selectedAgent, setSelectedAgent] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [view, setView] = useState<'table' | 'timeline' | 'stats' | 'agents' | 'history'>('table');
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<any>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
   const fetchLogs = useCallback(async () => {

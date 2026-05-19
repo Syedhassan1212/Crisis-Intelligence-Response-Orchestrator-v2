@@ -118,20 +118,22 @@ export async function runCycle(): Promise<OrchestratorState> {
 
     if (highConfidenceSignals.length > 0) {
       state.systemStatus = 'alert';
-      // Process top 3 signals through Gemini (rate limit aware)
       const toProcess = highConfidenceSignals.slice(0, 3);
-      for (const signal of toProcess) {
-        try {
-          const crisis = await analyzeCrisisBrain(signal);
-          newCrises.push(crisis);
-        } catch (err) {
-          logError('CRISIS_DETECTION', 'Orchestrator', 'CLASSIFY_FALLBACK',
-            `Gemini classification failed for ${signal.event_type}@${signal.location}: ${err} — using heuristic fallback`, {
-            errorMessage: String(err),
-          });
-          newCrises.push(signalToCrisis(signal));
-        }
-      }
+      
+      const results = await Promise.all(
+        toProcess.map(async (signal) => {
+          try {
+            return await analyzeCrisisBrain(signal);
+          } catch (err) {
+            logError('CRISIS_DETECTION', 'Orchestrator', 'CLASSIFY_FALLBACK',
+              `Gemini classification failed for ${signal.event_type}@${signal.location}: ${err} — using heuristic fallback`, {
+              errorMessage: String(err),
+            });
+            return signalToCrisis(signal);
+          }
+        })
+      );
+      newCrises.push(...results);
 
       // Check for CRITICAL events
       const critical = newCrises.find(c => c.severity === 'CRITICAL');
@@ -161,40 +163,184 @@ export async function runCycle(): Promise<OrchestratorState> {
 
     // ── Step 4: Resource Allocation ──────────────────────────
     // ── Step 4 & 5 & 7: Unified Response Planning ────────────
-    const activeCrises = state.crises.filter(c => c.status === 'active');
-    const availableResources = state.resources.filter(r => r.status === 'available');
     const newAllocations: AllocationPlan[] = [];
     const newSimulations: SimulationResult[] = [];
     const newNotifications: Notification[] = [];
 
-    for (const crisis of activeCrises.slice(0, 3)) {
-      const alreadyAllocated = state.allocations.find(a => a.crisis_id === crisis.id);
-      if (!alreadyAllocated) {
-        try {
-          const { plan, simulation, notifications } = await planResponseBrain(crisis, availableResources);
-          newAllocations.push(plan);
-          newSimulations.push(simulation);
-          newNotifications.push(...notifications);
+    // ── Simulation Update: Progress assigned resources and resolve active crises ──
+    for (let idx = 0; idx < state.resources.length; idx++) {
+      const res = state.resources[idx];
+      
+      // If resource is dispatched/en_route
+      if (res.status === 'dispatched' || res.status === 'en_route') {
+        const assignedCrisis = state.crises.find(c => c.id === res.assigned_crisis_id);
+        
+        // If the assigned crisis is resolved or doesn't exist anymore, release the unit
+        if (!assignedCrisis || assignedCrisis.status === 'resolved') {
+          logInfo('RESOURCE_ALLOCATION', 'Orchestrator', 'RESOURCE_RELEASED', 
+            `Releasing Unit ${res.id} (${res.type}) because its assigned crisis was resolved or removed.`);
+          state.resources[idx] = {
+            ...res,
+            status: 'available',
+            assigned_crisis_id: undefined,
+            eta_minutes: undefined
+          };
+          continue;
+        }
+
+        // Decrement ETA
+        const currentEta = res.eta_minutes ?? 10;
+        const nextEta = Math.max(0, currentEta - 3); // 3 minutes progress per cycle
+        
+        if (nextEta === 0) {
+          // Unit arrives on scene!
+          logSuccess('RESOURCE_ALLOCATION', 'Orchestrator', 'RESOURCE_ARRIVED', 
+            `Unit ${res.id} (${res.type}) has arrived on scene at ${assignedCrisis.location} for ${assignedCrisis.type}.`);
           
-          // Mark resources as dispatched with ETA + coords
-          for (const unit of plan.units) {
-            const idx = state.resources.findIndex(r => r.id === unit.id);
-            if (idx >= 0) {
-              state.resources[idx] = {
-                ...unit,
-                status: 'dispatched',
-                eta_minutes: plan.total_response_time_minutes,
-                assigned_crisis_id: crisis.id,
-                lat: state.resources[idx].lat ?? (24.8607 + (Math.random() - 0.5) * 0.08),
-                lng: state.resources[idx].lng ?? (67.0011 + (Math.random() - 0.5) * 0.08),
+          state.resources[idx] = {
+            ...res,
+            status: 'on_scene',
+            eta_minutes: 0,
+            lat: assignedCrisis.lat,
+            lng: assignedCrisis.lng
+          };
+
+          newNotifications.push({
+            id: `arrival_${Date.now()}_${res.id}`,
+            crisis_id: assignedCrisis.id,
+            channel: 'emergency_services',
+            severity: assignedCrisis.severity,
+            title: `🚑 Unit Arrived: ${res.id.toUpperCase()}`,
+            message: `Emergency response unit ${res.id.toUpperCase()} (${res.type.replace('_', ' ')}) has arrived on-scene at ${assignedCrisis.location} to mitigate the ${assignedCrisis.type} threat.`,
+            location: assignedCrisis.location,
+            timestamp: new Date().toISOString(),
+            sent: true
+          });
+        } else {
+          // Progress along coordinates towards the crisis location
+          const progress = 3 / (currentEta || 3); // step fraction
+          const currentLat = res.lat ?? 24.8607;
+          const currentLng = res.lng ?? 67.0011;
+          const targetLat = assignedCrisis.lat ?? currentLat;
+          const targetLng = assignedCrisis.lng ?? currentLng;
+          
+          state.resources[idx] = {
+            ...res,
+            eta_minutes: nextEta,
+            lat: currentLat + (targetLat - currentLat) * progress,
+            lng: currentLng + (targetLng - currentLng) * progress
+          };
+        }
+      } 
+      // If resource is on scene
+      else if (res.status === 'on_scene') {
+        const assignedCrisis = state.crises.find(c => c.id === res.assigned_crisis_id);
+        
+        // If crisis is already resolved or gone, release the unit
+        if (!assignedCrisis || assignedCrisis.status === 'resolved') {
+          logInfo('RESOURCE_ALLOCATION', 'Orchestrator', 'RESOURCE_RELEASED', 
+            `Unit ${res.id} (${res.type}) has completed scene mitigation and is returning to standby.`);
+          
+          state.resources[idx] = {
+            ...res,
+            status: 'available',
+            assigned_crisis_id: undefined,
+            eta_minutes: undefined
+          };
+        } else {
+          // 60% chance to resolve the crisis each cycle while units are on scene
+          const roll = Math.random();
+          if (roll > 0.4) {
+            const crisisIdx = state.crises.findIndex(c => c.id === assignedCrisis.id);
+            if (crisisIdx >= 0) {
+              state.crises[crisisIdx] = {
+                ...state.crises[crisisIdx],
+                status: 'resolved'
               };
+              
+              logSuccess('RESOURCE_ALLOCATION', 'Orchestrator', 'CRISIS_RESOLVED',
+                `Crisis ${assignedCrisis.id} (${assignedCrisis.type} at ${assignedCrisis.location}) has been successfully resolved by responding units.`);
+              
+              newNotifications.push({
+                id: `resolved_${Date.now()}_${assignedCrisis.id}`,
+                crisis_id: assignedCrisis.id,
+                channel: 'public',
+                severity: 'LOW',
+                title: `✅ Incident Resolved: ${assignedCrisis.location}`,
+                message: `The ${assignedCrisis.type.replace('_', ' ')} incident at ${assignedCrisis.location} has been successfully mitigated by emergency responders. Normal traffic and routing are resuming.`,
+                location: assignedCrisis.location,
+                timestamp: new Date().toISOString(),
+                sent: true
+              });
             }
           }
-        } catch (err) {
-          logWarn('RESPONSE_PLANNER', 'Orchestrator', 'PLAN_FALLBACK',
-            `Unified planning failed for ${crisis.id}: ${err} — using heuristics`, { errorMessage: String(err) });
-          newAllocations.push(buildFallbackAllocation(crisis, availableResources));
-          newNotifications.push(buildFallbackNotification(crisis));
+        }
+      }
+    }
+
+    const activeCrises = state.crises.filter(c => c.status === 'active');
+    const availableResources = state.resources.filter(r => r.status === 'available');
+
+    const crisesToPlan = activeCrises.slice(0, 3).filter(c => !state.allocations.some(a => a.crisis_id === c.id));
+    
+    if (crisesToPlan.length > 0) {
+      const plans = await Promise.all(
+        crisesToPlan.map(async (crisis) => {
+          try {
+            const result = await planResponseBrain(crisis, availableResources);
+            return { success: true, crisis, ...result };
+          } catch (err) {
+            logWarn('RESPONSE_PLANNER', 'Orchestrator', 'PLAN_FALLBACK',
+              `Unified planning failed for ${crisis.id}: ${err} — using heuristics`, { errorMessage: String(err) });
+            return {
+              success: false,
+              crisis,
+              plan: buildFallbackAllocation(crisis, availableResources),
+              simulation: null,
+              notifications: [buildFallbackNotification(crisis)],
+            };
+          }
+        })
+      );
+
+      for (const res of plans) {
+        newAllocations.push(res.plan);
+        if (res.simulation) {
+          newSimulations.push(res.simulation);
+        }
+        newNotifications.push(...res.notifications);
+
+        // Mark resources as dispatched with ETA + coords
+        for (const unit of res.plan.units) {
+          const idx = state.resources.findIndex(r => r.id === unit.id);
+          if (idx >= 0) {
+            state.resources[idx] = {
+              ...unit,
+              status: 'dispatched',
+              eta_minutes: res.plan.total_response_time_minutes,
+              assigned_crisis_id: res.crisis.id,
+              lat: state.resources[idx].lat ?? (24.8607 + (Math.random() - 0.5) * 0.08),
+              lng: state.resources[idx].lng ?? (67.0011 + (Math.random() - 0.5) * 0.08),
+            };
+
+            // Notify WebSocket server of automated dispatch
+            try {
+              const WebSocket = require('ws');
+              const ws = new WebSocket('ws://localhost:3002');
+              ws.on('open', () => {
+                ws.send(JSON.stringify({
+                  type: 'dispatch',
+                  resourceId: unit.id,
+                  crisisId: res.crisis.id,
+                  eta: res.plan.total_response_time_minutes
+                }));
+                setTimeout(() => ws.close(), 100);
+              });
+              ws.on('error', () => {});
+            } catch (wsErr) {
+              console.warn('[WS Dispatch Auto] Failed to notify WebSocket server:', wsErr);
+            }
+          }
         }
       }
     }

@@ -22,172 +22,246 @@ function getGenAI(): GoogleGenerativeAI {
   return genAI;
 }
 
-let requestQueue: Promise<any> = Promise.resolve();
-let lastRequestTime = 0;
-const RPM_LIMIT = 15; // Increased to 15 for Gemini 1.5 Flash
-const REQUEST_INTERVAL_MS = (60 / RPM_LIMIT) * 1000 + 200; // ~4.2 seconds per request
+// ── Token Bucket Rate Limiter ────────────────────────────────
+// Enforces Gemini's 15 RPM limit while allowing concurrent execution (up to 3 concurrent requests).
+class TokenBucketLimiter {
+  private tokens: number;
+  private maxTokens: number;
+  private refillIntervalMs: number;
+  private lastRefillTime: number;
+  private queue: (() => void)[] = [];
 
-async function callGemini(agent: string, action: string, prompt: string, systemInstruction?: string, retryCount = 0): Promise<string> {
-  // Chain to global queue to ensure sequential execution (1 request at a time)
-  return new Promise((resolve, reject) => {
-    requestQueue = requestQueue.then(async () => {
-      let apiStart = Date.now();
-      try {
-        const now = Date.now();
-        const timeSinceLast = now - lastRequestTime;
-        if (timeSinceLast < REQUEST_INTERVAL_MS) {
-          const waitTime = REQUEST_INTERVAL_MS - timeSinceLast;
-          logInfo('API_CALL', agent, action, `Rate limit preservation: waiting ${waitTime}ms...`);
-          await new Promise(r => setTimeout(r, waitTime));
-        }
+  constructor(maxTokens: number, refillRatePerMin: number) {
+    this.maxTokens = maxTokens;
+    this.tokens = maxTokens;
+    this.refillIntervalMs = (60 * 1000) / refillRatePerMin;
+    this.lastRefillTime = Date.now();
+  }
 
-        apiStart = Date.now();
-        const promptPreview = prompt.trim().slice(0, 120).replace(/\n/g, ' ');
-
-        const openrouterKey = process.env.OPENROUTER_API_KEY;
-        const useOpenRouter = !!(openrouterKey && openrouterKey !== 'your_openrouter_key_here');
-
-        if (useOpenRouter) {
-          const openrouterModel = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-v4-flash:free';
-          logInfo('API_CALL', agent, action, `→ OpenRouter (${openrouterModel}): "${promptPreview}..."`, {
-            requestPayload: { model: openrouterModel, fullPrompt: prompt },
-          });
-
-          const response = await axios.post(
-            'https://openrouter.ai/api/v1/chat/completions',
-            {
-              model: openrouterModel,
-              messages: [
-                {
-                  role: 'system',
-                  content: systemInstruction || 'You are CIRO, an AI crisis analyst. You MUST NOT explain your reasoning. You MUST NOT use chain of thought. Output ONLY the final valid JSON object. Do not output anything before the JSON.'
-                },
-                {
-                  role: 'user',
-                  content: prompt
-                }
-              ],
-              response_format: { type: 'json_object' }
-            },
-            {
-              headers: {
-                'Authorization': `Bearer ${openrouterKey}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://ciro.emergency',
-                'X-Title': 'CIRO Crisis Command Center'
-              },
-              timeout: 45000
-            }
-          );
-
-          lastRequestTime = Date.now();
-          const text = response.data.choices?.[0]?.message?.content?.trim() || '';
-
-          // Robust JSON extraction
-          let clean = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-          const firstBrace = clean.indexOf('{');
-          const firstBracket = clean.indexOf('[');
-          let startIndex = -1;
-          let isArray = false;
-          
-          if (firstBrace !== -1 && firstBracket !== -1) {
-            startIndex = Math.min(firstBrace, firstBracket);
-            isArray = startIndex === firstBracket;
-          } else if (firstBrace !== -1) {
-            startIndex = firstBrace;
-          } else if (firstBracket !== -1) {
-            startIndex = firstBracket;
-            isArray = true;
-          }
-          
-          if (startIndex !== -1) {
-            const endChar = isArray ? ']' : '}';
-            const endIndex = clean.lastIndexOf(endChar);
-            if (endIndex !== -1 && endIndex > startIndex) {
-              clean = clean.substring(startIndex, endIndex + 1);
-            }
-          }
-
-          const ms = Date.now() - apiStart;
-          logSuccess('API_CALL', agent, action, `← OpenRouter responded in ${ms}ms (${clean.length} chars)`, {
-            durationMs: ms,
-            responsePayload: { rawOutput: text, extractedJson: clean },
-          });
-          resolve(clean);
-        } else {
-          // Standard Google Gemini implementation
-          logInfo('API_CALL', agent, action, `→ Gemini 2.5 Flash: "${promptPreview}..."`, {
-            requestPayload: { model: 'gemini-2.5-flash', fullPrompt: prompt },
-          });
-
-          const ai = getGenAI();
-          const model = ai.getGenerativeModel({
-            model: 'gemini-2.5-flash',
-            systemInstruction: systemInstruction || 'You are CIRO, an AI crisis analyst. You MUST NOT explain your reasoning. You MUST NOT use chain of thought. Output ONLY the final valid JSON object. Do not output anything before the JSON.',
-            generationConfig: {
-              responseMimeType: 'application/json',
-            }
-          });
-
-          const result = await model.generateContent(prompt);
-          lastRequestTime = Date.now();
-          const text = result.response.text().trim();
-          
-          // Robust JSON extraction
-          let clean = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-          const firstBrace = clean.indexOf('{');
-          const firstBracket = clean.indexOf('[');
-          let startIndex = -1;
-          let isArray = false;
-          
-          if (firstBrace !== -1 && firstBracket !== -1) {
-            startIndex = Math.min(firstBrace, firstBracket);
-            isArray = startIndex === firstBracket;
-          } else if (firstBrace !== -1) {
-            startIndex = firstBrace;
-          } else if (firstBracket !== -1) {
-            startIndex = firstBracket;
-            isArray = true;
-          }
-          
-          if (startIndex !== -1) {
-            const endChar = isArray ? ']' : '}';
-            const endIndex = clean.lastIndexOf(endChar);
-            if (endIndex !== -1 && endIndex > startIndex) {
-              clean = clean.substring(startIndex, endIndex + 1);
-            }
-          }
-
-          const ms = Date.now() - apiStart;
-          logSuccess('API_CALL', agent, action, `← Gemini responded in ${ms}ms (${clean.length} chars)`, {
-            durationMs: ms,
-            responsePayload: { rawOutput: text, extractedJson: clean },
-          });
-          resolve(clean);
-        }
-      } catch (err: any) {
-        const ms = Date.now() - apiStart;
-        
-        // Handle Rate Limit (429) specifically for Gemini
-        if (err.message?.includes('429') && retryCount < 3) {
-          const backoff = (retryCount + 1) * 20000; // 20s, 40s, 60s backoff
-          logWarn('API_CALL', agent, action, `Rate limited (429). Retrying in ${backoff/1000}s... (Attempt ${retryCount + 1}/3)`);
-          await new Promise(r => setTimeout(r, backoff));
-          lastRequestTime = 0; // Reset timer to allow retry
-          resolve(callGemini(agent, action, prompt, systemInstruction, retryCount + 1));
-          return;
-        }
-
-        logError('API_CALL', agent, action, `✗ AI call failed after ${ms}ms: ${err}`, {
-          durationMs: ms,
-          errorMessage: String(err),
-        });
-        reject(err);
+  private refill() {
+    const now = Date.now();
+    const elapsed = now - this.lastRefillTime;
+    if (elapsed > 0) {
+      const newTokens = Math.floor(elapsed / this.refillIntervalMs);
+      if (newTokens > 0) {
+        this.tokens = Math.min(this.maxTokens, this.tokens + newTokens);
+        this.lastRefillTime = now - (elapsed % this.refillIntervalMs);
       }
-    }).catch(() => {
-      // Prevents the global queue chain from breaking on rejections
+    }
+  }
+
+  async acquire(): Promise<void> {
+    this.refill();
+    if (this.tokens > 0) {
+      this.tokens--;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.queue.push(resolve);
+      this.scheduleRefill();
     });
+  }
+
+  private scheduleRefill() {
+    const nextRefillIn = this.refillIntervalMs - (Date.now() - this.lastRefillTime);
+    setTimeout(() => {
+      this.refill();
+      while (this.tokens > 0 && this.queue.length > 0) {
+        this.tokens--;
+        const next = this.queue.shift();
+        if (next) next();
+      }
+      if (this.queue.length > 0) {
+        this.scheduleRefill();
+      }
+    }, Math.max(0, nextRefillIn));
+  }
+}
+
+// 15 RPM limit on free tier, allow burst of 3 concurrent requests
+const limiter = new TokenBucketLimiter(3, 15);
+
+// Main Model Caller with Hybrid Fallback
+async function callGemini(agent: string, action: string, prompt: string, systemInstruction?: string, retryCount = 0): Promise<string> {
+  const preferOpenRouter = process.env.PREFER_OPENROUTER === 'true';
+  const hasGemini = !!process.env.GEMINI_API_KEY;
+  const hasOpenRouter = !!(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== 'your_openrouter_key_here');
+
+  // Route request to primary service based on preference/availability
+  if (preferOpenRouter && hasOpenRouter) {
+    try {
+      return await callOpenRouter(agent, action, prompt, systemInstruction);
+    } catch (err) {
+      logWarn('API_CALL', agent, action, `Primary OpenRouter failed. Trying fallback native Gemini...`);
+      if (hasGemini) {
+        return callNativeGemini(agent, action, prompt, systemInstruction, retryCount);
+      }
+      throw err;
+    }
+  } else {
+    try {
+      return await callNativeGemini(agent, action, prompt, systemInstruction, retryCount);
+    } catch (err: any) {
+      logWarn('API_CALL', agent, action, `Primary Gemini failed. Trying fallback OpenRouter...`);
+      if (hasOpenRouter) {
+        try {
+          return await callOpenRouter(agent, action, prompt, systemInstruction);
+        } catch (orErr) {
+          logError('API_CALL', agent, action, `Fallback OpenRouter also failed: ${orErr}`);
+        }
+      }
+      throw err;
+    }
+  }
+}
+
+// Native Google Gemini Implementation
+async function callNativeGemini(agent: string, action: string, prompt: string, systemInstruction?: string, retryCount = 0): Promise<string> {
+  await limiter.acquire();
+  const apiStart = Date.now();
+  const promptPreview = prompt.trim().slice(0, 120).replace(/\n/g, ' ');
+
+  logInfo('API_CALL', agent, action, `→ Gemini 2.5 Flash: "${promptPreview}..."`, {
+    requestPayload: { model: 'gemini-2.5-flash', fullPrompt: prompt },
   });
+
+  try {
+    const ai = getGenAI();
+    const model = ai.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      systemInstruction: systemInstruction || 'You are CIRO, an AI crisis analyst. You MUST NOT explain your reasoning. You MUST NOT use chain of thought. Output ONLY the final valid JSON object. Do not output anything before the JSON.',
+      generationConfig: {
+        responseMimeType: 'application/json',
+      }
+    });
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    
+    // Robust JSON extraction
+    let clean = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+    const firstBrace = clean.indexOf('{');
+    const firstBracket = clean.indexOf('[');
+    let startIndex = -1;
+    let isArray = false;
+    
+    if (firstBrace !== -1 && firstBracket !== -1) {
+      startIndex = Math.min(firstBrace, firstBracket);
+      isArray = startIndex === firstBracket;
+    } else if (firstBrace !== -1) {
+      startIndex = firstBrace;
+    } else if (firstBracket !== -1) {
+      startIndex = firstBracket;
+      isArray = true;
+    }
+    
+    if (startIndex !== -1) {
+      const endChar = isArray ? ']' : '}';
+      const endIndex = clean.lastIndexOf(endChar);
+      if (endIndex !== -1 && endIndex > startIndex) {
+        clean = clean.substring(startIndex, endIndex + 1);
+      }
+    }
+
+    const ms = Date.now() - apiStart;
+    logSuccess('API_CALL', agent, action, `← Gemini responded in ${ms}ms (${clean.length} chars)`, {
+      durationMs: ms,
+      responsePayload: { rawOutput: text, extractedJson: clean },
+    });
+    return clean;
+  } catch (err: any) {
+    const ms = Date.now() - apiStart;
+    const isRateLimit = err.message?.includes('429') || err.status === 429 || String(err).includes('429');
+    
+    if (isRateLimit && retryCount < 3) {
+      const backoff = (retryCount + 1) * 5000 + Math.random() * 2000; // 5s, 10s, 15s backoff
+      logWarn('API_CALL', agent, action, `Rate limited (429) on Gemini. Retrying in ${(backoff/1000).toFixed(1)}s... (Attempt ${retryCount + 1}/3)`);
+      await new Promise(r => setTimeout(r, backoff));
+      return callNativeGemini(agent, action, prompt, systemInstruction, retryCount + 1);
+    }
+
+    logError('API_CALL', agent, action, `✗ Gemini call failed after ${ms}ms: ${err}`, {
+      durationMs: ms,
+      errorMessage: String(err),
+    });
+    throw err;
+  }
+}
+
+// OpenRouter API Implementation
+async function callOpenRouter(agent: string, action: string, prompt: string, systemInstruction?: string): Promise<string> {
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (!openrouterKey || openrouterKey === 'your_openrouter_key_here') {
+    throw new Error('OpenRouter key not configured');
+  }
+  const openrouterModel = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-v4-flash:free';
+  const apiStart = Date.now();
+  const promptPreview = prompt.trim().slice(0, 120).replace(/\n/g, ' ');
+
+  logInfo('API_CALL', agent, action, `→ OpenRouter (${openrouterModel}): "${promptPreview}..."`, {
+    requestPayload: { model: openrouterModel, fullPrompt: prompt },
+  });
+
+  const response = await axios.post(
+    'https://openrouter.ai/api/v1/chat/completions',
+    {
+      model: openrouterModel,
+      messages: [
+        {
+          role: 'system',
+          content: systemInstruction || 'You are CIRO, an AI crisis analyst. You MUST NOT explain your reasoning. You MUST NOT use chain of thought. Output ONLY the final valid JSON object. Do not output anything before the JSON.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      response_format: { type: 'json_object' }
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${openrouterKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://ciro.emergency',
+        'X-Title': 'CIRO Crisis Command Center'
+      },
+      timeout: 45000
+    }
+  );
+
+  const text = response.data.choices?.[0]?.message?.content?.trim() || '';
+
+  // Robust JSON extraction
+  let clean = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+  const firstBrace = clean.indexOf('{');
+  const firstBracket = clean.indexOf('[');
+  let startIndex = -1;
+  let isArray = false;
+  
+  if (firstBrace !== -1 && firstBracket !== -1) {
+    startIndex = Math.min(firstBrace, firstBracket);
+    isArray = startIndex === firstBracket;
+  } else if (firstBrace !== -1) {
+    startIndex = firstBrace;
+  } else if (firstBracket !== -1) {
+    startIndex = firstBracket;
+    isArray = true;
+  }
+  
+  if (startIndex !== -1) {
+    const endChar = isArray ? ']' : '}';
+    const endIndex = clean.lastIndexOf(endChar);
+    if (endIndex !== -1 && endIndex > startIndex) {
+      clean = clean.substring(startIndex, endIndex + 1);
+    }
+  }
+
+  const ms = Date.now() - apiStart;
+  logSuccess('API_CALL', agent, action, `← OpenRouter responded in ${ms}ms (${clean.length} chars)`, {
+    durationMs: ms,
+    responsePayload: { rawOutput: text, extractedJson: clean },
+  });
+  return clean;
 }
 
 // ── CALL #1: Analysis Brain (Detection + Risk) ──────────────────
@@ -384,7 +458,8 @@ ${signals.map(s => `- ${s.event_type} at ${s.location} (${s.urgency_level}, conf
 Return a plain text summary string (no JSON).`;
   try {
     const ai = getGenAI();
-    const model = ai.getGenerativeModel({ model: 'gemma-4-26b-a4b-it' });
+    // Switched to gemini-2.5-flash for reliable high-speed inference
+    const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent(prompt);
     return result.response.text().trim();
   } catch {

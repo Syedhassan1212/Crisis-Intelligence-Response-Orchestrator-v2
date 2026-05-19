@@ -10,6 +10,8 @@ interface CrisisPanelProps {
   signals: FusedSignal[];
   trafficActions?: TrafficAction[];
   onCollapse?: () => void;
+  onCallIncident?: (incidentId: string, location: string, sector: string, severity: string) => void;
+  activeRoomIds?: Set<string>;
 }
 
 const CRISIS_ICONS: Record<string, string> = {
@@ -31,7 +33,7 @@ function formatTime(ts: string) {
   } catch { return ts?.slice(0, 8) + 'Z'; }
 }
 
-export default function CrisisPanel({ crises, signals, trafficActions = [], onCollapse }: CrisisPanelProps) {
+export default function CrisisPanel({ crises, signals, trafficActions = [], onCollapse, onCallIncident, activeRoomIds }: CrisisPanelProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const activeCrises = crises
@@ -151,6 +153,24 @@ export default function CrisisPanel({ crises, signals, trafficActions = [], onCo
                         <div className="text-[10px] text-sky-400/90 font-mono leading-relaxed italic border-l-2 border-sky-500/30 pl-2 py-0.5">
                           "{crisis.ai_reasoning}"
                         </div>
+                      </div>
+                    )}
+                    {/* Call Button */}
+                    {onCallIncident && (
+                      <div className="flex justify-end pt-1">
+                        {activeRoomIds?.has(crisis.id) ? (
+                          <div className="flex items-center gap-1.5 text-[9px] font-mono font-bold text-red-400 uppercase tracking-wider">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                            CHANNEL LIVE
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onCallIncident(crisis.id, crisis.location, crisis.type.replace(/_/g,' '), crisis.severity); }}
+                            className="flex items-center gap-1.5 bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-700/40 text-emerald-300 text-[9px] font-mono font-bold px-2.5 py-1 rounded uppercase tracking-wider transition-all active:scale-95"
+                          >
+                            📞 Open Voice Channel
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
