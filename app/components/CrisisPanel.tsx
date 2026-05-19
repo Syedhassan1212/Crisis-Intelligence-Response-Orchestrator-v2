@@ -11,7 +11,9 @@ interface CrisisPanelProps {
   trafficActions?: TrafficAction[];
   onCollapse?: () => void;
   onCallIncident?: (incidentId: string, location: string, sector: string, severity: string) => void;
+  onOpenChat?: (incidentId: string, location: string, sector: string, severity: string) => void;
   activeRoomIds?: Set<string>;
+  activeChatIds?: Set<string>;
 }
 
 const CRISIS_ICONS: Record<string, string> = {
@@ -33,7 +35,7 @@ function formatTime(ts: string) {
   } catch { return ts?.slice(0, 8) + 'Z'; }
 }
 
-export default function CrisisPanel({ crises, signals, trafficActions = [], onCollapse, onCallIncident, activeRoomIds }: CrisisPanelProps) {
+export default function CrisisPanel({ crises, signals, trafficActions = [], onCollapse, onCallIncident, onOpenChat, activeRoomIds, activeChatIds }: CrisisPanelProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const activeCrises = crises
@@ -155,24 +157,41 @@ export default function CrisisPanel({ crises, signals, trafficActions = [], onCo
                         </div>
                       </div>
                     )}
-                    {/* Call Button */}
-                    {onCallIncident && (
-                      <div className="flex justify-end pt-1">
-                        {activeRoomIds?.has(crisis.id) ? (
+                    {/* Action Buttons */}
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      {/* Chat button — always available */}
+                      {onOpenChat && (
+                        activeChatIds?.has(crisis.id) ? (
+                          <div className="flex items-center gap-1 text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-wider">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            CHAT OPEN
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onOpenChat(crisis.id, crisis.location, crisis.type.replace(/_/g,' '), crisis.severity); }}
+                            className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/60 text-zinc-300 text-[9px] font-mono font-bold px-2.5 py-1 rounded uppercase tracking-wider transition-all active:scale-95"
+                          >
+                            💬 Message
+                          </button>
+                        )
+                      )}
+                      {/* Call button — independent */}
+                      {onCallIncident && (
+                        activeRoomIds?.has(crisis.id) ? (
                           <div className="flex items-center gap-1.5 text-[9px] font-mono font-bold text-red-400 uppercase tracking-wider">
                             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
-                            CHANNEL LIVE
+                            VOICE LIVE
                           </div>
                         ) : (
                           <button
                             onClick={(e) => { e.stopPropagation(); onCallIncident(crisis.id, crisis.location, crisis.type.replace(/_/g,' '), crisis.severity); }}
                             className="flex items-center gap-1.5 bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-700/40 text-emerald-300 text-[9px] font-mono font-bold px-2.5 py-1 rounded uppercase tracking-wider transition-all active:scale-95"
                           >
-                            📞 Open Voice Channel
+                            📞 Call
                           </button>
-                        )}
-                      </div>
-                    )}
+                        )
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

@@ -32,6 +32,8 @@ export default function Home() {
   const [rightTab, setRightTab] = useState<'resources' | 'simulations' | 'warnings'>('resources');
   const timerRef = useRef<any>(null);
   const [dashboardWs, setDashboardWs] = useState<WebSocket | null>(null);
+  // Tracks which incident IDs have an active server-confirmed voice call
+  const [voiceRoomIds, setVoiceRoomIds] = useState<Set<string>>(new Set());
 
   // Multi-incident room state: Map<incidentId, RoomState>
   type RoomState = {
@@ -323,14 +325,11 @@ export default function Home() {
           else if (payload.type === 'rooms_update') {
             // Server sends full room list whenever rooms change
             const serverRooms: Array<{incidentId:string; location:string; sector:string; severity:string; startedAt:string}> = payload.rooms || [];
+            const serverRoomIds = new Set(serverRooms.map((r:any) => r.incidentId));
+            setVoiceRoomIds(serverRoomIds);
             setRooms(prev => {
               const next = new Map(prev);
-              const incomingIds = new Set(serverRooms.map((r:any) => r.incidentId));
-              // Remove rooms that no longer exist
-              for (const id of next.keys()) {
-                if (!incomingIds.has(id)) next.delete(id);
-              }
-              // Add new rooms
+              // Add new server rooms
               for (const r of serverRooms) {
                 if (!next.has(r.incidentId)) {
                   next.set(r.incidentId, {
@@ -363,7 +362,6 @@ export default function Home() {
               setActiveCallStatus({ location: first.location, sector: first.sector, startedAt: first.startedAt });
             } else {
               setActiveCallStatus(null);
-              setFocusedIncidentId(null);
             }
           }
 
@@ -492,6 +490,31 @@ export default function Home() {
     handleCallForIncident('hq_general', 'HQ Command Center', 'Central Dispatch', 'HIGH');
   };
 
+  // Open a chat-only panel without starting a voice call
+  const handleOpenChat = (incidentId: string, location: string, sector: string, severity: string) => {
+    setRooms(prev => {
+      if (prev.has(incidentId)) return prev; // already open
+      const next = new Map(prev);
+      next.set(incidentId, {
+        incidentId,
+        location,
+        sector,
+        severity,
+        startedAt: new Date().toISOString(),
+        messages: [],
+        input: '',
+        minimized: false,
+      });
+      // Try to load chat history if WS is connected
+      if (dashboardWs?.readyState === WebSocket.OPEN) {
+        dashboardWs.send(JSON.stringify({ type: 'get_chat_history', incidentId }));
+      }
+      return next;
+    });
+    setFocusedIncidentId(prev => prev ?? incidentId);
+  };
+
+
   useEffect(() => {
     if (autoRun) {
       timerRef.current = setInterval(() => {
@@ -610,17 +633,18 @@ export default function Home() {
       <div className="bg-[#0d0d12] border-b border-[#1e1e26] text-xs px-4 py-1.5 flex items-center gap-3 font-mono z-50 overflow-x-auto">
         <span className="text-zinc-500 whitespace-nowrap flex-shrink-0">📡 COMMS ROOMS:</span>
         {rooms.size === 0 ? (
-          <span className="text-zinc-700 italic">No active voice channels — click Call on any incident below</span>
+          <span className="text-zinc-700 italic">No open channels — click Message or Call on any incident</span>
         ) : (
           Array.from(rooms.values()).map(room => (
-            <div key={room.incidentId} className="flex items-center gap-1.5 bg-red-950/40 border border-red-500/30 rounded px-2 py-0.5 whitespace-nowrap">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
-              <span className="text-red-300 font-bold text-[10px]">{room.location}</span>
+            <div key={room.incidentId} className={`flex items-center gap-1.5 border rounded px-2 py-0.5 whitespace-nowrap ${voiceRoomIds.has(room.incidentId) ? 'bg-red-950/40 border-red-500/30' : 'bg-zinc-900/60 border-zinc-700/40'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${voiceRoomIds.has(room.incidentId) ? 'bg-red-500 animate-ping' : 'bg-emerald-500'}`} />
+              <span className={`font-bold text-[10px] ${voiceRoomIds.has(room.incidentId) ? 'text-red-300' : 'text-zinc-300'}`}>{room.location}</span>
               <span className="text-zinc-500 text-[9px]">({room.sector})</span>
+              {voiceRoomIds.has(room.incidentId) && <span className="text-red-500 text-[8px] font-bold uppercase tracking-wider">VOICE</span>}
               <button
                 onClick={() => handleHangUpIncident(room.incidentId)}
-                className="ml-1 bg-red-800 hover:bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider"
-              >✕ End</button>
+                className={`ml-1 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${voiceRoomIds.has(room.incidentId) ? 'bg-red-800 hover:bg-red-600' : 'bg-zinc-700 hover:bg-zinc-600'}`}
+              >{voiceRoomIds.has(room.incidentId) ? '✕ End' : '✕ Close'}</button>
             </div>
           ))
         )}
@@ -703,7 +727,9 @@ export default function Home() {
                 trafficActions={state.trafficActions}
                 onCollapse={() => setLeftOpen(false)}
                 onCallIncident={handleCallForIncident}
-                activeRoomIds={new Set(Array.from(rooms.keys()))}
+                onOpenChat={handleOpenChat}
+                activeRoomIds={voiceRoomIds}
+                activeChatIds={new Set(Array.from(rooms.keys()))}
               />
             )}
           </section>
@@ -847,49 +873,48 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Messages — collapsible */}
           {!room.minimized && (
-            <>
-              {/* Messages */}
-              <div className="h-60 p-3 overflow-y-auto flex flex-col gap-1.5 bg-zinc-950/20">
-                {room.messages.length === 0 ? (
-                  <div className="text-center text-[10px] font-mono text-zinc-600 my-auto">
-                    NO TRANSMISSIONS<br/>AWAITING FIELD COMMS...
+            <div className="h-52 p-3 overflow-y-auto flex flex-col gap-1.5 bg-zinc-950/20">
+              {room.messages.length === 0 ? (
+                <div className="text-center text-[10px] font-mono text-zinc-600 my-auto">
+                  NO TRANSMISSIONS<br/>AWAITING FIELD COMMS...
+                </div>
+              ) : (
+                room.messages.map(msg => (
+                  <div key={msg.id} className={`flex flex-col ${msg.sender === 'HQ Commander' ? 'items-end' : 'items-start'}`}>
+                    <span className="text-[8px] font-mono text-zinc-500 mb-0.5">
+                      {msg.sender} · {new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})}
+                    </span>
+                    <div className={`px-2.5 py-1.5 rounded text-[11px] font-mono max-w-[85%] ${
+                      msg.sender === 'HQ Commander'
+                        ? 'bg-zinc-800 text-emerald-300 rounded-tr-none'
+                        : 'bg-emerald-950/50 border border-emerald-800/30 text-emerald-100 rounded-tl-none'
+                    }`}>{msg.text}</div>
                   </div>
-                ) : (
-                  room.messages.map(msg => (
-                    <div key={msg.id} className={`flex flex-col ${msg.sender === 'HQ Commander' ? 'items-end' : 'items-start'}`}>
-                      <span className="text-[8px] font-mono text-zinc-500 mb-0.5">
-                        {msg.sender} · {new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})}
-                      </span>
-                      <div className={`px-2.5 py-1.5 rounded text-[11px] font-mono max-w-[85%] ${
-                        msg.sender === 'HQ Commander'
-                          ? 'bg-zinc-800 text-emerald-300 rounded-tr-none'
-                          : 'bg-emerald-950/50 border border-emerald-800/30 text-emerald-100 rounded-tl-none'
-                      }`}>{msg.text}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Input */}
-              <form
-                onSubmit={(e) => { e.preventDefault(); handleSendChat(room.incidentId); }}
-                className="p-2 border-t border-zinc-800 bg-[#16161c] flex gap-1.5"
-              >
-                <input
-                  type="text"
-                  value={room.input}
-                  onChange={(e) => setRoomInput(room.incidentId, e.target.value)}
-                  placeholder="Transmit directive..."
-                  className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-100 font-mono focus:outline-none focus:border-zinc-600 placeholder-zinc-600"
-                />
-                <button
-                  type="submit"
-                  className="bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white font-bold px-3 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-all"
-                >Send</button>
-              </form>
-            </>
+                ))
+              )}
+            </div>
           )}
+
+          {/* Message input — always visible outside minimized area */}
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleSendChat(room.incidentId); }}
+            className="p-2 border-t border-zinc-800 bg-[#16161c] flex gap-1.5 flex-shrink-0"
+          >
+            <input
+              type="text"
+              value={room.input}
+              onChange={(e) => setRoomInput(room.incidentId, e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(room.incidentId); } }}
+              placeholder="Transmit directive..."
+              className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-[11px] text-zinc-100 font-mono focus:outline-none focus:border-emerald-700/60 focus:ring-1 focus:ring-emerald-900/50 placeholder-zinc-600 transition-all"
+            />
+            <button
+              type="submit"
+              className="bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded text-[10px] font-mono uppercase tracking-wider transition-all"
+            >Send</button>
+          </form>
         </div>
       ))}
     </div>
