@@ -13,7 +13,7 @@ import {
   buildDecisionLog, summarizeSignals
 } from './gemini';
 import { logInfo, logSuccess, logWarn, logError, setGlobalCycle, getLogs } from './logger';
-import { persistLogs, persistCrises, persistAllocations, persistNotifications, persistCycle, isSupabaseEnabled } from './supabase';
+import { persistLogs, persistCrises, persistAllocations, persistNotifications, persistCycle, isSupabaseEnabled, fetchHistoricalCrises } from './supabase';
 
 // Use globalThis to maintain a single global state across Next.js Turbopack dev compilations
 const globalForOrchestrator = globalThis as unknown as {
@@ -142,6 +142,23 @@ export async function runCycle(): Promise<OrchestratorState> {
 
     // Merge with existing crises (keep non-resolved, update status)
     const existingIds = new Set(state.crises.map(c => c.id));
+
+    // Fetch active crises from Supabase that we don't have yet (e.g. from Mobile app)
+    let externalCrises: CrisisEvent[] = [];
+    if (isSupabaseEnabled()) {
+      try {
+        const allHistorical = await fetchHistoricalCrises(50);
+        externalCrises = allHistorical
+          .filter(c => c.status === 'active' && !existingIds.has(c.id))
+          .map((c: any) => ({
+            ...c,
+            timestamp: c.detected_at || c.updated_at || new Date().toISOString()
+          }));
+      } catch (e) {
+        logWarn('DATA_INGESTION', 'Orchestrator', 'DB_FETCH_FAILED', 'Failed to fetch historical crises', { errorMessage: String(e) });
+      }
+    }
+
     const merged = [
       ...state.crises.filter(c => c.status !== 'resolved').map(c => {
         // Age out old crises
@@ -150,6 +167,7 @@ export async function runCycle(): Promise<OrchestratorState> {
         return c;
       }),
       ...newCrises,
+      ...externalCrises
     ];
     state.crises = merged.slice(0, 20); // Keep max 20
 
