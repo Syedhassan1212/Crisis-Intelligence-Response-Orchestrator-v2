@@ -29,6 +29,21 @@ function generateToken(room: string, identity: string) {
   return at.toJwt();
 }
 
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  };
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders()
+  });
+}
+
 // GET handler (convenient for browsers or query strings)
 export async function GET(request: Request) {
   try {
@@ -39,18 +54,18 @@ export async function GET(request: Request) {
     if (!room || !identity) {
       return NextResponse.json(
         { success: false, error: 'Query parameters "room" and "identity" (or "username") are required.' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders() }
       );
     }
 
     const token = await generateToken(room, identity);
     const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
-    return NextResponse.json({ success: true, token, serverUrl });
+    return NextResponse.json({ success: true, token, serverUrl }, { headers: corsHeaders() });
   } catch (err: any) {
     console.error('[LiveKit Token API] Error:', err.message);
     return NextResponse.json(
       { success: false, error: err.message || 'Internal Server Error' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders() }
     );
   }
 }
@@ -65,18 +80,18 @@ export async function POST(request: Request) {
     if (!room || !identity) {
       return NextResponse.json(
         { success: false, error: 'JSON fields "room" and "identity" (or "username") are required.' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders() }
       );
     }
 
     const token = await generateToken(room, identity);
     const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
-    return NextResponse.json({ success: true, token, serverUrl });
+    return NextResponse.json({ success: true, token, serverUrl }, { headers: corsHeaders() });
   } catch (err: any) {
     console.error('[LiveKit Token API] Error:', err.message);
     return NextResponse.json(
       { success: false, error: err.message || 'Internal Server Error' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders() }
     );
   }
 }

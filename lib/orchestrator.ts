@@ -344,7 +344,8 @@ export async function runCycle(): Promise<OrchestratorState> {
             // Notify WebSocket server of automated dispatch
             try {
               const WebSocket = require('ws');
-              const ws = new WebSocket('ws://localhost:3002');
+              const wsUrl = (process.env.WS_URL || process.env.NEXT_PUBLIC_WS_URL || 'wss://webrtc-5kl0.onrender.com').replace(/\/$/, '');
+              const ws = new WebSocket(wsUrl);
               ws.on('open', () => {
                 ws.send(JSON.stringify({
                   type: 'dispatch',

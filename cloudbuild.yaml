@@ -16,7 +16,7 @@ steps:
       - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}'
       - '.'
       - '-f'
-      - 'Dockerfile.dashboard'
+      - 'Dockerfile'
 
   # Push image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'

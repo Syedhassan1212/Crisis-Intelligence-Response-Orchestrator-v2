@@ -12,7 +12,20 @@ import AIDecisionTrace from './components/AIDecisionTrace';
 import TimelineFeed from './components/TimelineFeed';
 import WeatherWidget from './components/WeatherWidget';
 import type { OrchestratorState } from '@/lib/types';
+import {
+  isCivilianEvidence,
+  mergeCivilianCrisis,
+  mergeCivilianCrises,
+  playDistressAlert,
+} from '@/lib/civilianCrises';
 import { useVoiceChannel } from './hooks/useVoiceChannel';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = (supabaseUrl && supabaseKey && !supabaseUrl.includes('placeholder')) 
+  ? createClient(supabaseUrl, supabaseKey)
+  : null;
 
 // ── Sidebar items: each has a DISTINCT purpose ──────────────────────────────
 // Map     → switch center to Map View
@@ -182,10 +195,46 @@ export default function Home() {
       const res = await fetch('/api/state');
       const data = await res.json();
       if (data.success) setState(data.data);
+      await syncCivilianCrisesFromApi();
     } catch (error) {
       console.error('Failed to fetch state:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const syncCivilianCrisesFromApi = async () => {
+    try {
+      const res = await fetch('/api/civilian-crises');
+      const json = await res.json();
+      if (!json.success || !Array.isArray(json.data) || json.data.length === 0) return;
+      setState((prev) => {
+        let next = prev;
+        for (const crisis of json.data) {
+          next = mergeCivilianCrisis(next, {
+            ...crisis,
+            evidence: crisis.evidence,
+          });
+        }
+        return next;
+      });
+    } catch (e) {
+      console.warn('[Dashboard] civilian-crises sync failed:', e);
+    }
+  };
+
+  const syncCivilianCrisesFromDb = async () => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('ciro_crises')
+        .select('*')
+        .order('detected_at', { ascending: false })
+        .limit(40);
+      if (error || !data?.length) return;
+      setState((prev) => mergeCivilianCrises(prev, data as Record<string, unknown>[]));
+    } catch (e) {
+      console.warn('[Dashboard] Supabase civilian sync failed:', e);
     }
   };
 
@@ -206,7 +255,41 @@ export default function Home() {
 
   useEffect(() => {
     fetchState();
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    const poll = setInterval(() => {
+      syncCivilianCrisesFromApi();
+      syncCivilianCrisesFromDb();
+    }, 15000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      clearInterval(poll);
+    };
+  }, []);
+
+  // Listen to Supabase Realtime for instant mobile app sync
+  useEffect(() => {
+    if (!supabase) {
+      console.warn('[Dashboard] Supabase not configured — mobile SOS will only sync via API poll');
+      return;
+    }
+    const sub = supabase
+      .channel('dashboard-crises')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'ciro_crises' },
+        (payload) => {
+          const c = payload.new as Record<string, unknown>;
+          if (!isCivilianEvidence(c.evidence)) return;
+          playDistressAlert();
+          setState((prev) => mergeCivilianCrisis(prev, c));
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Dashboard] Supabase realtime status:', status);
+      });
+
+    return () => {
+      supabase.removeChannel(sub);
+    };
   }, []);
 
   // Real-time WebSocket Broker connection
@@ -217,7 +300,7 @@ export default function Home() {
 
     const connectWebSocket = () => {
       // Connect to port 3002 or public deployment
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3002';
+      const wsUrl = (process.env.NEXT_PUBLIC_WS_URL || 'wss://webrtc-5kl0.onrender.com').replace(/\/$/, '');
       socket = new WebSocket(wsUrl);
       setDashboardWs(socket);
 
@@ -235,67 +318,22 @@ export default function Home() {
           console.log('[Dashboard WS] Message received:', payload);
 
           if (payload.type === 'sos_broadcast') {
-            const newSos = payload.data;
-            
-            // Play a distress alert sound (using browser AudioContext)
-            try {
-              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-              const osc = audioCtx.createOscillator();
-              const gain = audioCtx.createGain();
-              osc.connect(gain);
-              gain.connect(audioCtx.destination);
-              osc.type = 'sawtooth';
-              osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-              osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.5); // A4
-              gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-              gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
-              osc.start(audioCtx.currentTime);
-              osc.stop(audioCtx.currentTime + 0.6);
-            } catch (err) {
-              console.warn('Audio play failed:', err);
-            }
-
-            // Add the SOS to the crises state
-            setState(prev => {
-              if (!prev) return prev;
-              
-              // Check if already exists
-              if (prev.crises.some(c => c.id === newSos.id)) return prev;
-
-              const formattedCrisis = {
+            const newSos = payload.data as Record<string, unknown>;
+            playDistressAlert();
+            setState((prev) =>
+              mergeCivilianCrisis(prev, {
                 id: newSos.id,
                 type: newSos.incidentType || 'unknown',
                 severity: newSos.severity || 'CRITICAL',
                 location: newSos.location || 'Emergency Beacon Lock',
-                lat: newSos.lat || 24.8607,
-                lng: newSos.lng || 67.0104,
-                description: newSos.description || 'IMMEDIATE SOS DISTRESS CALL! Citizen triggered 1-Tap emergency beacon.',
-                status: 'active' as const,
-                confidence: 0.99,
-                affected_radius_km: 1.5,
-                expected_duration_hours: 3,
+                lat: newSos.lat,
+                lng: newSos.lng,
+                description: newSos.description,
+                detected_at: newSos.timestamp,
                 evidence: ['civilian_sos_app'],
-                timestamp: newSos.timestamp || new Date().toISOString()
-              };
-
-              const newNotification = {
-                id: `notif_${Date.now()}`,
-                crisis_id: formattedCrisis.id,
-                channel: 'public' as const,
-                severity: formattedCrisis.severity,
-                title: `🚨 EMERGENCY SOS BEACON: ${formattedCrisis.location.toUpperCase()}`,
-                message: formattedCrisis.description,
-                location: formattedCrisis.location,
-                timestamp: new Date().toISOString(),
-                sent: true
-              };
-
-              return {
-                ...prev,
-                crises: [formattedCrisis, ...prev.crises].slice(0, 20),
-                notifications: [newNotification, ...prev.notifications].slice(0, 50)
-              };
-            });
+                status: 'active',
+              })
+            );
           } 
           
           else if (payload.type === 'responder_location_broadcast') {
