@@ -149,7 +149,7 @@ export async function runCycle(): Promise<OrchestratorState> {
       try {
         const allHistorical = await fetchHistoricalCrises(50);
         externalCrises = allHistorical
-          .filter(c => c.status === 'active' && !existingIds.has(c.id))
+          .filter((c: any) => c.status === 'active' && !existingIds.has(c.id))
           .map((c: any) => ({
             ...c,
             timestamp: c.detected_at || c.updated_at || new Date().toISOString()
