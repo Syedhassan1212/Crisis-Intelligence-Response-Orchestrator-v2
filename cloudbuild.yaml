@@ -1,0 +1,43 @@
+steps:
+  # Build Docker image with build args for NEXT_PUBLIC env vars
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--no-cache'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_SUPABASE_URL=${_NEXT_PUBLIC_SUPABASE_URL}'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_SUPABASE_ANON_KEY=${_NEXT_PUBLIC_SUPABASE_ANON_KEY}'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_WS_URL=${_NEXT_PUBLIC_WS_URL}'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_GOOGLE_MAPS_KEY=${_NEXT_PUBLIC_GOOGLE_MAPS_KEY}'
+      - '-t'
+      - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}'
+      - '.'
+      - '-f'
+      - 'Dockerfile.dashboard'
+
+  # Push image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}'
+
+  # Deploy to Cloud Run with runtime env vars
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'services'
+      - 'update'
+      - '${_SERVICE_NAME}'
+      - '--platform=${_PLATFORM}'
+      - '--image=${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}'
+      - '--region=${_DEPLOY_REGION}'
+      - '--quiet'
+      - '--set-env-vars'
+      - 'GEMINI_API_KEY=${_GEMINI_API_KEY},GOOGLE_WEATHER_API_KEY=${_GOOGLE_WEATHER_API_KEY},OPENROUTER_API_KEY=${_OPENROUTER_API_KEY},OPENROUTER_MODEL=${_OPENROUTER_MODEL},LIVEKIT_API_KEY=${_LIVEKIT_API_KEY},LIVEKIT_API_SECRET=${_LIVEKIT_API_SECRET},NEXT_PUBLIC_SUPABASE_URL=${_NEXT_PUBLIC_SUPABASE_URL},NEXT_PUBLIC_SUPABASE_ANON_KEY=${_NEXT_PUBLIC_SUPABASE_ANON_KEY},NEXT_PUBLIC_WS_URL=${_NEXT_PUBLIC_WS_URL},NEXT_PUBLIC_GOOGLE_MAPS_KEY=${_NEXT_PUBLIC_GOOGLE_MAPS_KEY},NEXT_PUBLIC_LIVEKIT_URL=${_NEXT_PUBLIC_LIVEKIT_URL},NEXT_PUBLIC_SOCIAL_API=${_NEXT_PUBLIC_SOCIAL_API}'
+
+images:
+  - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:${COMMIT_SHA}'
