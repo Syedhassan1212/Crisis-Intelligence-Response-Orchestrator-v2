@@ -4,6 +4,8 @@ import { isCivilianEvidence, rowToCrisisEvent } from '@/lib/civilianCrises';
 
 export const runtime = 'nodejs';
 
+type CrisisRow = Record<string, unknown>;
+
 /** Returns recent citizen SOS / mobile reports for the dashboard to merge. */
 export async function GET() {
   if (!isSupabaseEnabled()) {
@@ -11,10 +13,10 @@ export async function GET() {
   }
 
   try {
-    const rows = await fetchHistoricalCrises(40);
+    const rows = (await fetchHistoricalCrises(40)) as CrisisRow[];
     const civilian = rows
-      .filter((r) => isCivilianEvidence(r.evidence))
-      .map((r) => rowToCrisisEvent(r as Record<string, unknown>));
+      .filter((r: CrisisRow) => isCivilianEvidence(r.evidence))
+      .map((r: CrisisRow) => rowToCrisisEvent(r));
 
     return NextResponse.json({ success: true, data: civilian });
   } catch (err) {
