@@ -1,4 +1,4 @@
-# CIRO - Crisis Intelligence & Response Orchestrator 🚨
+# CIRO - Crisis Intelligence & Response Orchestrator 
 
 CIRO is a hybrid real-time command center designed for crisis monitoring, resource allocation, and emergency reporting. It acts as an autonomous "brain" that ingests data from various sources, detects potential crises using AI, and intelligently dispatches emergency resources to mitigate the situation.
 
@@ -11,11 +11,11 @@ CIRO is a hybrid real-time command center designed for crisis monitoring, resour
 - **Traffic Control & Rerouting**: Dynamically detects road congestion and generates reroute plans to keep rescue paths clear.
 - **Real-Time Dashboard**: A Next.js web application that visualizes the state of the city, active crises, and dispatched units via Supabase real-time sync.
 
-# CIRO Full System Architecture Deep-Dive 🧠📡
+# CIRO Full System Architecture Deep-Dive 
 
 This document provides a comprehensive overview of the **CIRO (Crisis Intelligence & Response Orchestrator)** ecosystem, detailing the AI agent interactions, real-time communication protocols (WebRTC/LiveKit, WebSockets), and deterministic fallback systems.
 
-## 🏗️ 1. Global Architecture Overview
+##  1. Global Architecture Overview
 
 CIRO is composed of three primary operational spaces:
 1. **The Brain & Orchestrator (Next.js Serverless):** The core intelligence engine that processes signals, runs AI models, and dictates responses.
@@ -70,7 +70,7 @@ graph TD
     class DB db;
 ```
 
-## 🤖 2. The Multi-Agent AI System (Gemini)
+##  2. The Multi-Agent AI System (Gemini)
 
 Instead of relying on a single prompt, CIRO splits intelligence into specialized agentic nodes, making the outputs more reliable and structured.
 
@@ -84,7 +84,7 @@ Instead of relying on a single prompt, CIRO splits intelligence into specialized
 - **Input:** Confirmed crisis events from Agent 1, paired with the real-time locations and statuses of available emergency units.
 - **Process:** Acts as a dispatcher. It evaluates ETAs, determines the optimal mix of units needed (e.g., 2 fire trucks, 1 ambulance), and generates a structured `AllocationPlan`.
 
-## ⚖️ 3. The "Antigravity" Orchestrator
+##  3. The "Antigravity" Orchestrator
 
 "Antigravity" is the deterministic control plane that wraps the AI agents. Large Language Models can hallucinate, rate-limit, or fail. Antigravity ensures CIRO never stops running.
 
@@ -92,7 +92,7 @@ Instead of relying on a single prompt, CIRO splits intelligence into specialized
 - **Heuristic Fallback:** If the Gemini API fails, Antigravity intercepts the error and applies hard-coded heuristic rules (e.g., "If social media mentions fire > 5 times, dispatch 1 fire unit and 1 police unit").
 - **State Reconciliation:** Prevents duplicate crisis generation and ages out old crises mathematically, independent of the AI.
 
-## ⚡ 4. Real-Time Communications & WebRTC
+##  4. Real-Time Communications & WebRTC
 
 To coordinate field responders, CIRO bypasses standard HTTP request-response delays for critical operations.
 
@@ -106,7 +106,7 @@ To coordinate field responders, CIRO bypasses standard HTTP request-response del
 - This provides ultra-low latency push-to-talk (PTT) voice channels and potential video streaming between command center operators and field responders.
 - Unlike text, which can be slow to type during an emergency, WebRTC allows instant verbal coordination linked directly to the active `CrisisEvent` ID.
 
-## 💾 5. Persistence & Cross-Platform Sync
+##  5. Persistence & Cross-Platform Sync
 
 - **Supabase Realtime:** Acts as the central nervous system for state.
 - **Citizen SOS:** When a citizen uses the React Native app to report an emergency, it's written directly to Supabase.
