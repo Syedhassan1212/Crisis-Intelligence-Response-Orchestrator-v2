@@ -11,49 +11,107 @@ CIRO is a hybrid real-time command center designed for crisis monitoring, resour
 - **Traffic Control & Rerouting**: Dynamically detects road congestion and generates reroute plans to keep rescue paths clear.
 - **Real-Time Dashboard**: A Next.js web application that visualizes the state of the city, active crises, and dispatched units via Supabase real-time sync.
 
-##  System Architecture
+# CIRO Full System Architecture Deep-Dive 🧠📡
 
-The following diagram illustrates how data flows through the CIRO system:
+This document provides a comprehensive overview of the **CIRO (Crisis Intelligence & Response Orchestrator)** ecosystem, detailing the AI agent interactions, real-time communication protocols (WebRTC/LiveKit, WebSockets), and deterministic fallback systems.
+
+## 🏗️ 1. Global Architecture Overview
+
+CIRO is composed of three primary operational spaces:
+1. **The Brain & Orchestrator (Next.js Serverless):** The core intelligence engine that processes signals, runs AI models, and dictates responses.
+2. **The Field Responders & Citizens (Expo React Native Mobile App):** End-users generating SOS reports and first responders receiving dispatches and communicating via WebRTC voice.
+3. **The Command Center (Next.js Web Dashboard):** The real-time visual interface for human operators.
 
 ```mermaid
 graph TD
-    %% External Inputs
-    subgraph Ingestion Layer
-        S[Social Media API] -->|Raw Posts| I[Ingestion Engine]
-        W[Google Weather API] -->|Weather Context| I
-        T[Google Maps Traffic] -->|Road Congestion| I
+    subgraph Mobile & Field Layer
+        Citizen[Citizen App] -->|SOS Data| DB[(Supabase DB)]
+        Responder[Responder App] <-->|Voice / Video WebRTC| LK[LiveKit Media Server]
+        Responder <-->|Real-time Dispatch| WS[WebSocket Server]
     end
 
-    %% Processing Core
-    subgraph CIRO Orchestrator Core
+    subgraph Ingestion Layer
+        S[Social Media API] -->|Raw Text| I[Ingestion Engine]
+        W[Google Weather API] -->|Context| I
+        T[Google Maps Traffic] -->|Congestion Data| I
+    end
+
+    subgraph CIRO Intelligence Core
         I --> F[Signal Fusion Engine]
-        F -->|Fused Signals| AI1[Gemini: Crisis Analysis Brain]
-        AI1 -->|Crisis Events| O[Main Orchestrator]
+        DB -->|Citizen Reports| O[Main Orchestrator]
+        F -->|Fused Data| O
         
-        O -->|Active Crises + Available Resources| AI2[Gemini: Response Planner Brain]
-        AI2 -->|Allocation Plans| O
+        O -->|Raw Crisis Candidates| A1[Agent 1: Crisis Analysis Brain]
+        A1 -->|Structured JSON Classification| O
+        
+        O -->|Confirmed Crises & Responders| A2[Agent 2: Response Planner Brain]
+        A2 -->|Optimal Dispatch JSON| O
         
         O --> TC[Traffic Control Engine]
-        TC -->|Road Blocks & Reroutes| O
         
-        O --> |Fallbacks & State Merging| AG[Antigravity Controller]
+        O -->|Fallback Protocol| AG[Antigravity Controller]
+        AG --> O
     end
 
-    %% Persistence and Output
-    subgraph Persistence & Frontend Sync
-        O -->|State Updates| DB[(Supabase DB)]
-        AG --> DB
-        DB -->|Realtime Channels| WUI[Web Dashboard]
+    subgraph Persistence & Real-Time Sync
+        O -->|State & Alerts| DB
+        O -->|Dispatch Events| WS
+        DB -->|Real-time Subscriptions| Web[Command Dashboard]
     end
 
-    %% Styling
-    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px;
-    classDef ai fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef core fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef comms fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
+    classDef mobile fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
     classDef db fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
     
-    class AI1,AI2 ai;
+    class A1,A2,O,AG core;
+    class LK,WS comms;
+    class Citizen,Responder mobile;
     class DB db;
 ```
+
+## 🤖 2. The Multi-Agent AI System (Gemini)
+
+Instead of relying on a single prompt, CIRO splits intelligence into specialized agentic nodes, making the outputs more reliable and structured.
+
+### Agent 1: The Crisis Analysis Brain
+- **Role:** Information classification and risk scoring.
+- **Input:** Fused signals (social media text, weather severity, traffic congestion).
+- **Process:** The agent evaluates the data and is constrained to output strict JSON. It determines if an event is a genuine crisis, categorizes it (e.g., `fire`, `accident`), calculates a severity score (`CRITICAL`, `HIGH`, `MEDIUM`), and predicts an affected radius.
+
+### Agent 2: The Response Planner Brain
+- **Role:** Logistics and resource allocation.
+- **Input:** Confirmed crisis events from Agent 1, paired with the real-time locations and statuses of available emergency units.
+- **Process:** Acts as a dispatcher. It evaluates ETAs, determines the optimal mix of units needed (e.g., 2 fire trucks, 1 ambulance), and generates a structured `AllocationPlan`.
+
+## ⚖️ 3. The "Antigravity" Orchestrator
+
+"Antigravity" is the deterministic control plane that wraps the AI agents. Large Language Models can hallucinate, rate-limit, or fail. Antigravity ensures CIRO never stops running.
+
+- **State Management:** Maintains the unified state of the city in a tick-based cycle.
+- **Heuristic Fallback:** If the Gemini API fails, Antigravity intercepts the error and applies hard-coded heuristic rules (e.g., "If social media mentions fire > 5 times, dispatch 1 fire unit and 1 police unit").
+- **State Reconciliation:** Prevents duplicate crisis generation and ages out old crises mathematically, independent of the AI.
+
+## ⚡ 4. Real-Time Communications & WebRTC
+
+To coordinate field responders, CIRO bypasses standard HTTP request-response delays for critical operations.
+
+### WebSockets for Dispatch
+- The Orchestrator pushes dispatch commands via a dedicated **WebSocket connection**.
+- When the Response Planner Brain allocates an ambulance, the Orchestrator fires an event over WebSockets (`wss://webrtc-...`).
+- The Mobile App receives this instantly, triggering an alarm/dispatch notification for the first responder without waiting for database polling.
+
+### LiveKit (WebRTC) for Voice & Audio
+- The mobile application integrates **LiveKit**, a powerful open-source WebRTC media server.
+- This provides ultra-low latency push-to-talk (PTT) voice channels and potential video streaming between command center operators and field responders.
+- Unlike text, which can be slow to type during an emergency, WebRTC allows instant verbal coordination linked directly to the active `CrisisEvent` ID.
+
+## 💾 5. Persistence & Cross-Platform Sync
+
+- **Supabase Realtime:** Acts as the central nervous system for state.
+- **Citizen SOS:** When a citizen uses the React Native app to report an emergency, it's written directly to Supabase.
+- **Tick Ingestion:** On the next orchestrator cycle (tick), the orchestrator fetches these unhandled active reports from Supabase and merges them with the social/weather signals.
+- **Dashboard Reflection:** The Next.js Command Center dashboard subscribes to Supabase tables. The moment the Orchestrator updates a crisis status to `resolved` or dispatches a unit, the UI updates instantly across all connected screens.
 
 ##  How It Works
 
